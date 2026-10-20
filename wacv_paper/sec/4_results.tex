@@ -1,0 +1,74 @@
+\section{Results}
+\label{sec:results}
+
+\begin{table*}[!t]
+\centering
+\footnotesize
+\renewcommand{\arraystretch}{1.25}
+\setlength{\tabcolsep}{5pt}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lcccccccc}
+\toprule
+& \multicolumn{4}{c}{Low-Level}
+& \multicolumn{4}{c}{High-Level} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}
+\textbf{Method}
+& PixCorr $\uparrow$
+& SSIM $\uparrow$
+& Alex(2) $\uparrow$
+& Alex(5) $\uparrow$
+& Incep $\uparrow$
+& CLIP $\uparrow$
+& Eff $\downarrow$
+& SwAV $\downarrow$ \\
+\midrule
+% \textit{Takagi \& Nishimoto (2023) \cite{10205187}}
+% & 0.239 & 0.377 & 78.47\% & 85.52\%
+% & 83.24\% & 82.64\% & 0.817 & 0.510 \\
+\textit{Brain-Diffuser \cite{ozcelik2023brain}}
+& 0.305 & 0.367 & 96.7\% & 97.4\%
+& 87.8\% & 92.5\% & 0.768 & 0.415 \\
+\textit{MindEye \cite{scotti2023reconstructingmindseyefmritoimage}}
+& \textbf{0.390} & 0.337 & 97.4\% & 98.7\%
+& 94.5\% & 94.6\% & 0.630 & 0.358 \\
+\textit{DREAM \cite{xia2024dreamvisualdecodingreversing}}
+& 0.288 & 0.338 & 95.0\% & 97.5\%
+& 94.8\% & \underline{95.2\%} & 0.638 & 0.413 \\
+\textit{MindEye2$^\dagger$ \cite{scotti2024mindeye2sharedsubjectmodelsenable}}
+& 0.374 & \textbf{0.439} & 97.8\% & 99.1\%
+& \underline{96.2\%} & 93.6\% & \underline{0.609} & 0.338 \\
+\textit{NeuroPictor$^\dagger$ \cite{huo2024neuropictorrefiningfmritoimagereconstruction}}
+& 0.277 & 0.385 & \textbf{98.8\%} & \underline{99.3\%}
+& \underline{96.2\%} & 94.5\% & 0.619 & \underline{0.334} \\
+\textit{UMBRAE$^\dagger$ \cite{xia2024umbraeunifiedmultimodalbrain}}
+& 0.293 & 0.345 & 95.8\% & 97.2\%
+& 92.6\% & 93.9\% & 0.690 & 0.391 \\
+\textit{MindTuner$^\dagger$ \cite{gong2024mindtunercrosssubjectvisualdecoding}}
+& 0.371 & \underline{0.428} & 97.7\% & \underline{99.3\%}
+& \textbf{96.4\%} & 94.3\% & \textbf{0.601} & \textbf{0.331} \\
+\textit{NeuralDiffuser \cite{Li_2025}}
+& \underline{0.378} & 0.330 & \underline{98.3\%} & \textbf{99.4\%}
+& 95.8\% & \textbf{95.4\%} & 0.642 & 0.380 \\
+\midrule
+\textbf{\textit{CortexDecoder (Ours)} - Low-Level}
+& \textbf{0.390} & 0.407 & 97.6\% & 99.2\%
+& 90.9\% & 75.9\% & 0.845 & 0.580 \\
+\textbf{\textit{CortexDecoder (Ours)} - Final}
+& 0.370 & 0.414 & 96.6\% & 97.7\%
+& 92.5\% & 91.4\% & 0.675 & 0.385 \\
+\bottomrule
+\end{tabular*}
+\caption{Quantitative comparison of CortexDecoder with existing fMRI-to-Image reconstruction methods on the NSD shared1000 test set for Subject 1. We report the performance for both the low-level reconstruction produced from the predicted VGG features using Deep Image Prior (DIP) and the final diffusion reconstruction conditioned on the predicted semantic and low-level representations. PixCorr denotes pixelwise correlation and SSIM denotes structural similarity. AlexNet(2), AlexNet(5), InceptionV3, CLIP, EfficientNet-B1 (Eff), and SwAV-ResNet50 (SwAV) measure similarity in learned feature spaces. EfficientNet and SwAV are reported as correlation distance, where lower is better. \textbf{Bold} indicates the best performance and \underline{underline} indicates the second best performance. All baseline values are the Subject 1 results reported by the respective papers. $^\dagger$ denotes methods that pretrain on multiple subjects before subject-specific fine-tuning (UMBRAE is a single cross-subject model evaluated on Subject 1).}
+\label{tab:subject1_reconstruction}
+\end{table*}
+
+
+We evaluate CortexDecoder on the shared1000 from the NSD, a dataset completely separated from training and validation to prevent leakage. All metrics computed compare reconstruction against the stimulus images viewed by subject one. We report, PixCorr (Pixel Correlation), SSIM (Structural Similarity Index Measure) \cite{1284395}, AlexNet(2), AlexNet(5) \cite{NIPS2012_c399862d}, InceptionV3 \cite{szegedy2015rethinkinginceptionarchitecturecomputer}, CLIP \cite{radford2021learningtransferablevisualmodels}, EfficientNet-B1 \cite{tan2020efficientnetrethinkingmodelscaling} and SwAV-ResNet50 \cite{caron2021unsupervisedlearningvisualfeatures}. PixCorr and SSIM measure pixel and structural similarity while AlexNet, InceptionV3, CLIP measure feature space similarity. EfficientNet and SwAV report correlation distance, where lower is better.
+
+We report metrics for both the lower-level DIP reconstruction and the final diffusion reconstruction. This allows us to evaluate the contribution of the lower-level branch separately from the semantic conditioning. Because diffusion is stochastic, we generate ten candidates per image. Then we select the generated image with the lowest pixelwise MSE to the low-level reconstruction after resizing. This approach does not use ground-truth images and favors candidates that preserve the predicted structure.
+
+\subsection{Reconstruction Benchmarks}
+CortexDecoder is competitive with prior methods in capturing low-level and mid-level features in reconstructed images. Specifically, our model performs well for PixCorr and SSIM reflecting the contribution of the lower-level branch. However, we report weaker results in terms of capturing semantic features in the reconstructed images. 
+
+From the results it is clear that the introduction of semantic conditioning negatively impacts the modeling of lower level features. For example, the low-level method on its own scores higher on the low-level benchmarks compared to the samples where semantic conditioning was introduced in the diffusion stage. We conclude that the final reconstruction which takes into account both semantic and low-level representation improves on semantic metrics at the expense of low-level performance.
+
+

@@ -1,0 +1,25 @@
+# old IEEE version of the paper
+paper/
+
+# latex build artifacts
+*.aux
+*.bbl
+*.blg
+*.brf
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+*.lof
+*.lot
+*.nav
+*.snm
+*.bcf
+*.run.xml
+*.xdv
+
+wacv_paper/*.pdf
+
+.DS_Store

@@ -8,7 +8,7 @@
 
 ## Architecture
 
-![Model Architecture](diagrams/model.jpg)
+![Model Architecture](wacv_paper/images/!repo_model.jpg)
 
 ## Method
 
@@ -20,7 +20,7 @@
 
 ## Results
 
-![Results](diagrams/title.png)
+![Results](wacv_paper/images/!repo_title.png)
 
 ## Dataset
 
