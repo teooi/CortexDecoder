@@ -17,7 +17,7 @@ CortexMAE is a spatiotemporal masked autoencoder \cite{he2021maskedautoencoderss
 \begin{figure}[!t]
 \centering
 \includegraphics[width=0.8\columnwidth]{images/cross.jpg}
-\caption{Cross-attention bridge. The brain tokens supply key and values while learned query tokens serve as queries. There is one learned query token for each output feature token. Each attention block first applies self attention among query tokens, followed by a cross-attention from queries to brain tokens. We have 8 attention heads followed by a FFN. There are 4 layers of multi-head attention blocks with a subsequent linear projection to match the shape of the image features. A separate bridge is instantiated for each branch, with the number of query tokens and output dimensionality determined by the target. Images including those depicting faces were derived from the Microsoft COCO dataset, used under CC-BY 4.0. \cite{lin2015microsoftcococommonobjects}}
+\caption{Cross-attention bridge. Learned queries, one per output token, attend to the brain tokens through 4 blocks of self-attention, cross-attention and FFN. A linear layer projects each query to the target feature dimension. Each branch has its own bridge. Images from COCO \cite{lin2015microsoftcococommonobjects} (CC BY 4.0).}
 \label{fig:cross_attention_bridge}
 \end{figure}
 
@@ -63,7 +63,7 @@ The OpenCLIP encoder is frozen and used only to produce targets. We extract the 
 \begin{figure}[h]
 \centering
 \includegraphics[width=1\columnwidth]{images/DIP3.png}
-\caption{Low-level image reconstruction from predicted VGG16-BN feature activations with Deep Image Prior Inversion. We use the DIP U-Net to project random Gaussian noise to an RGB image. The image is passed through a frozen VGG16-BN network, and the output feature activations are compared with the target activations predicted by the Cross-Attention Bridge model. The DIP U-Net is optimized with 2000 training steps, and its output becomes the final low-level image reconstruction.}
+\caption{Low-level reconstruction with Deep Image Prior. A U-Net maps noise to an image whose frozen VGG16-BN features are matched to the bridge's predicted features. After 2000 optimization steps, its output is the low-level reconstruction.}
 \label{fig:dip_reconstruction}
 \end{figure}
 
@@ -80,7 +80,7 @@ We first add gaussian noise to the low-level image to partially corrupt fine det
 \begin{figure}[!t]
 \includegraphics[width=0.65\columnwidth]{images/stacked_triptych_collage3.png}
 \centering
-\caption{Comparing low-level reconstruction (middle column) with final reconstruction (rightmost column). The left column is the original COCO image stimulus. Each row shows different types of reconstructions of the original image stimulus. Images including those depicting faces are derived from the Microsoft COCO dataset, used under CC-BY 4.0. \cite{lin2015microsoftcococommonobjects}}
+\caption{Stimulus (left), low-level DIP reconstruction (middle) and final diffusion reconstruction (right). Images from COCO \cite{lin2015microsoftcococommonobjects} (CC BY 4.0).}
 \label{fig:stacked_triptych}
 \end{figure}
 
