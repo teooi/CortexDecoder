@@ -20,6 +20,6 @@ paper/
 *.run.xml
 *.xdv
 
-wacv_paper/*.pdf
+*.pdf
 
 .DS_Store

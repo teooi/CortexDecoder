@@ -15,7 +15,7 @@
 - fMRI responses from the visual cortex are preprocessed into cortical flatmap patches (1456 × 256) and encoded into brain tokens (1456 × 768) by a frozen CortexMAE encoder.
 - A **Cross-Attention Bridge** with learned query vectors maps brain tokens into two branches:
   - **Semantic Branch**: predicts CLIP ViT-bigG/14 image-patch embeddings (256 × 1664), used as semantic conditioning for SDXL.
-  - **Lower-Level Branch**: predicts multi-layer VGG features (7190 × 512), inverted into an initial image via Deep Image Prior (DIP).
+  - **Low-Level Branch**: predicts multi-layer VGG features (7190 × 512), inverted into an initial image via Deep Image Prior (DIP).
 - The DIP-generated initial image and predicted CLIP embeddings are combined to condition a frozen **SDXL** diffusion model, producing the final reconstruction.
 
 ## Results
@@ -24,7 +24,7 @@
 
 ## Dataset
 
-Trained and evaluated on the [Natural Scenes Dataset (NSD)](https://naturalscenesdataset.org/) for Subject 1:
+Trained and evaluated on the [Natural Scenes Dataset (NSD)](https://naturalscenesdataset.org/) for Subjects 1 and 2. Splits for Subject 1:
 
 | Split | Unique Images | Trials |
 |-------|--------------|--------|
