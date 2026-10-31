@@ -1,57 +1,41 @@
 # CortexDecoder: fMRI-to-Image Reconstruction from Cortical Flatmaps
 
-**CortexDecoder** reconstructs natural images from fMRI brain activity using a dual-branch cross-attention bridge and a frozen SDXL diffusion model. Cortical flatmap patches are tokenized via a pretrained CortexMAE encoder, then decoded into both low-level (VGG) and high-level (CLIP) visual features, which together guide image generation.
+Reconstructs viewed images from fMRI using cortical flatmaps. A frozen CortexMAE encoder turns flatmap patches into brain tokens, two cross-attention bridges predict VGG (low-level) and OpenCLIP bigG (semantic) features, and a frozen SDXL-unCLIP model generates the image from a Deep Image Prior init. Only the bridges are trained (~83M params).
 
-## Paper
+**Paper:** [bioRxiv preprint](https://www.biorxiv.org/content/10.64898/2026.10.09.757766v1)
 
-[Project Paper (PDF)](https://drive.google.com/file/d/1enbKYnWTBWejX23fXj-fNeg9yO681rSn/view?usp=sharing)
+![CortexDecoder](papers/wacv_paper/images/!repo_title.png)
 
-## Architecture
+## Usage
 
-![Model Architecture](wacv_paper/images/!repo_model.jpg)
-
-## Method
-
-- fMRI responses from the visual cortex are preprocessed into cortical flatmap patches (1456 × 256) and encoded into brain tokens (1456 × 768) by a frozen CortexMAE encoder.
-- A **Cross-Attention Bridge** with learned query vectors maps brain tokens into two branches:
-  - **Semantic Branch**: predicts CLIP ViT-bigG/14 image-patch embeddings (256 × 1664), used as semantic conditioning for SDXL.
-  - **Low-Level Branch**: predicts multi-layer VGG features (7190 × 512), inverted into an initial image via Deep Image Prior (DIP).
-- The DIP-generated initial image and predicted CLIP embeddings are combined to condition a frozen **SDXL** diffusion model, producing the final reconstruction.
-
-## Results
-
-![Results](wacv_paper/images/!repo_title.png)
-
-## Dataset
-
-Trained and evaluated on the [Natural Scenes Dataset (NSD)](https://naturalscenesdataset.org/) for Subjects 1 and 2. Splits for Subject 1:
-
-| Split | Unique Images | Trials |
-|-------|--------------|--------|
-| Train | 8,528 | ~26,200 |
-| Validation | 448 | ~2,460 |
-| Test (shared-1000) | 1,000 | held out |
-
-## Installation
+Runs on [Modal](https://modal.com) with the `braid2-flatmap-data` volume.
 
 ```bash
-pip install -r requirements.txt
+modal deploy code/v2/modal_app.py
+python3 code/v2/scripts/spawn_runs.py clip  '{"timestamp": "<run-id>"}'
+python3 code/v2/scripts/spawn_runs.py vgg   '{"timestamp": "<run-id>"}'
+python3 code/v2/scripts/spawn_runs.py final '{"timestamp": "<run-id>", "final_eval_images": 1000}'
 ```
 
-## Notebooks
+Config knobs live in `code/v2/cortexdecoder/core/config.py`; any field can be passed as an override.
 
-| Notebook | Description |
-|----------|-------------|
-| `production-vgg-train-sub1.ipynb` | Train VGG branch, predict VGG features, run DIP inversion |
-| `production-clip-train-sub1.ipynb` | Train CLIP branch, predict CLIP embeddings |
-| `production-final-diffusion-sub1.ipynb` | SDXL diffusion reconstruction and final evaluation |
+## Layout
 
-## Requirements
+```
+code/v2/   pipeline (Python package + Modal app)
+code/v1/   original notebooks
+papers/    AAAI workshop paper
+results/   evaluation tables
+```
 
-See [requirements.txt](requirements.txt) for the full dependency list. Key dependencies:
+## Citation
 
-- PyTorch + torchvision
-- xformers
-- diffusers + transformers
-- open_clip_torch
-- h5py, scipy, scikit-image
+```bibtex
+@article{imototar2026cortexdecoder,
+  title   = {CortexDecoder: fMRI-to-image Reconstruction from Cortical Flatmaps},
+  author  = {Imoto-Tar, Teo and Fung, Maxwell and Gurha, Arnav},
+  journal = {bioRxiv},
+  year    = {2026},
+  doi     = {10.64898/2026.10.09.757766}
+}
+```

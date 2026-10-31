@@ -147,9 +147,15 @@ def invert_vgg_features_with_dip(cfg, tokenizer, target_features, generator, des
     return lowlevel_112.cpu(), lowlevel_256.cpu()
 
 
+def _subset_tag(cfg):
+    """Per-image shards are shared by every subset size; aggregates/evals are named by size so they never clobber."""
+    tag = cfg.dip_output_tag
+    return tag if cfg.final_eval_images == SHARED1000_EVAL_SIZE else f"{tag}_n{cfg.final_eval_images}"
+
+
 def dip_paths(cfg, out_dir):
-    tag, subject = cfg.dip_output_tag, cfg.subject
-    recon_dir = f"{out_dir}/{subject}_shared1000_dip_recon_shards_{tag}"
+    tag, subject = _subset_tag(cfg), cfg.subject
+    recon_dir = f"{out_dir}/{subject}_shared1000_dip_recon_shards_{cfg.dip_output_tag}"
     os.makedirs(recon_dir, exist_ok=True)
     return {
         "recon_dir": recon_dir,
@@ -232,14 +238,14 @@ def run_dip_inversion(cfg, tokenizer, stimuli, prediction, out_dir, on_batch_end
     print("saved DIP recons 112:", tuple(all_recons112.shape), paths["recons112_path"])
     print("saved DIP recons 256:", tuple(all_recons.shape), paths["recons_path"])
     manifest = {cfg.subject: {"subject": cfg.subject, "n_requested": len(recon_indices), "n_available": n_available, **paths}}
-    with open(f"{out_dir}/dip_prediction_manifest_{cfg.dip_output_tag}.json", "w") as f:
+    with open(f"{out_dir}/dip_prediction_manifest_{_subset_tag(cfg)}.json", "w") as f:
         json.dump(manifest, f, indent=2)
     return manifest[cfg.subject]
 
 
 def eval_dip(cfg, stimuli, paths, out_dir):
     """PixCorr/SSIM of the DIP reconstructions plus an actual|DIP preview grid."""
-    tag, subject = cfg.dip_output_tag, cfg.subject
+    tag, subject = _subset_tag(cfg), cfg.subject
     all_recons = torch_load_cpu(paths["recons_path"]).float().clamp(0, 1)
     with open(paths["img_ids_path"]) as f:
         ids_done = json.load(f)[:len(all_recons)]

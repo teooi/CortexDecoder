@@ -54,13 +54,14 @@ class Config:
     epochs: int = 30
     lr: float = 5e-4
     weight_decay: float = 1e-2
-    warmup_epochs: int = 15
-    plateau_patience: int = 2
+    warmup_epochs: int = 2  # v1 notebooks used 15, i.e. 15 of 25 CLIP epochs below the peak LR
+    plateau_patience: int = 5  # v1 used 2; with a short warmup that cut LR at the first noisy epoch
     plateau_factor: float = 0.1
     grad_clip_norm: float = 1.0
     temperature: float = 0.07  # VGG InfoNCE
     clip_loss: str = "mse"  # see training/losses.py:build_clip_loss, e.g. "mse+0.5*cosine"
     clip_temperature: float = 0.07  # CLIP InfoNCE terms
+    best_metric: str = "val_loss"  # "val_loss" | "val_cos"; use val_cos to compare runs with different losses
     cache_sessions_in_ram: bool = False
     run_vgg_batch_audit: bool = True
 
@@ -98,6 +99,11 @@ class Config:
     run_brainit_sdxl_enhancement: bool = False
     rerun_diffusion: bool = False
     diffusion_experiment_name: str = ""
+    oracle_clip: bool = False  # diagnostic: condition diffusion on ground-truth semantics instead of predictions
+    semantic_target: str = "image_tokens"  # "image_tokens" (bigG 256x1664, MindEye2 unCLIP) | "text_tokens" (SDXL 77x2048 + pooled)
+    caption_index: int = 0  # which COCO caption to use for text targets
+    sdxl_guidance_scale: float = 5.0
+    sdxl_batch_size: int = 20  # candidates per SDXL call at 1024px
 
     # Final evaluation.
     eval_feature_batch_size: int = 32

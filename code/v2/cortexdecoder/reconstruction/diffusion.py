@@ -191,6 +191,8 @@ def load_combined_model(cfg):
 
 def final_recon_tag(cfg):
     variant = f"s{cfg.diffusion_start_step}_n{cfg.diffusion_num_steps}"
+    if cfg.semantic_target == "text_tokens":
+        variant = f"sdxltext_c{cfg.caption_index}_g{cfg.sdxl_guidance_scale:g}_" + variant
     if not cfg.use_lowlevel_init_for_diffusion:
         variant += "_no_lowlevel"
     if not cfg.use_clip_tokens_for_diffusion:
@@ -199,6 +201,8 @@ def final_recon_tag(cfg):
         variant += f"_bestof{cfg.diffusion_ensemble_size}_lowlevel_mse"
     if not cfg.run_brainit_sdxl_enhancement:
         variant += "_no_sdxl"
+    if cfg.oracle_clip:
+        variant += "_oracle_clip"
     if cfg.diffusion_experiment_name:
         variant += "_" + str(cfg.diffusion_experiment_name).strip().replace(" ", "_").replace("/", "-")
     return f"singlehead_finaleval{cfg.final_eval_images}_{variant}"
@@ -284,12 +288,13 @@ def _generate_safe(cfg, combined, indices, clip_tokens, lowlevel_images):
     except torch.cuda.OutOfMemoryError:
         if not cfg.diffusion_auto_split_on_oom or len(indices) <= 1:
             raise
-        torch.cuda.empty_cache()
-        mid = len(indices) // 2
-        return torch.cat([
-            _generate_safe(cfg, combined, indices[:mid], clip_tokens, lowlevel_images),
-            _generate_safe(cfg, combined, indices[mid:], clip_tokens, lowlevel_images),
-        ], dim=0)
+    # Retry outside the except block: inside it, the traceback still pins the failed attempt's tensors.
+    torch.cuda.empty_cache()
+    mid = len(indices) // 2
+    return torch.cat([
+        _generate_safe(cfg, combined, indices[:mid], clip_tokens, lowlevel_images),
+        _generate_safe(cfg, combined, indices[mid:], clip_tokens, lowlevel_images),
+    ], dim=0)
 
 
 def _load_semantic_cache(cfg, paths, ids):

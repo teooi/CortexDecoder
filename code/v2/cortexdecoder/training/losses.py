@@ -78,11 +78,24 @@ def clip_token_infonce(pred, target, cfg):
     return info_nce_by_position(pred, target, cfg.clip_temperature)
 
 
+def clip_softclip(pred, target, cfg):
+    """MindEye's SoftCLIP: InfoNCE on flattened tokens with soft labels from target-target similarity,
+    so near-duplicate images in the batch are not treated as hard negatives."""
+    p = F.normalize(pred.float().flatten(1), dim=-1)
+    t = F.normalize(target.float().flatten(1), dim=-1)
+    soft = (t @ t.T / cfg.clip_temperature).softmax(-1)
+    logits = p @ t.T / cfg.clip_temperature
+    loss_p = -(logits.log_softmax(-1) * soft).sum(-1).mean()
+    loss_t = -(logits.T.log_softmax(-1) * soft).sum(-1).mean()
+    return 0.5 * (loss_p + loss_t)
+
+
 CLIP_LOSSES = {
     "mse": clip_mse,
     "cosine": clip_cosine,
     "infonce": clip_infonce,
     "token_infonce": clip_token_infonce,
+    "softclip": clip_softclip,
 }
 
 

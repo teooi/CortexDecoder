@@ -3,6 +3,7 @@ import json
 import math
 import os
 import random
+import time
 from collections import defaultdict
 
 import pandas as pd
@@ -81,6 +82,11 @@ def checkpoint_payload(cfg, data, head, model, opt, scheduler, epoch, best_val):
         "val_heldout_image_ids_by_subject_count": {cfg.subject: len(data.val_heldout_ids)},
         "val_heldout_image_ids_all_count": len(data.val_heldout_ids),
     }
+
+
+def selection_score(cfg, row):
+    """Lower is better. val_cos lets runs trained with different losses pick checkpoints the same way."""
+    return -row["val_cos"] if cfg.best_metric == "val_cos" else row["val_loss"]
 
 
 def set_warmup_lr(cfg, opt, epoch):
@@ -163,7 +169,8 @@ class HeadTrainer:
                     totals["cos"] += metrics["cos"]
                     totals["lr"] += float(self.opt.param_groups[0]["lr"])
                     for key, value in parts.items():
-                        totals[key] += float(value.detach().cpu())
+                        # prefixed so a "mse" term doesn't add into the feature-metric "mse" above
+                        totals[f"loss_{key}"] += float(value.detach().cpu())
                     n_batches += 1
                     progress.update(1)
                     progress.set_postfix(sess=int(sess), loss=f"{float(loss.detach().cpu()):.4f}")
@@ -207,7 +214,7 @@ class HeadTrainer:
             with open(self.paths["history"]) as f:
                 history = json.load(f)
             if history:
-                best_val = min(h["val_loss"] for h in history)
+                best_val = min(selection_score(self.cfg, h) for h in history)
                 start_epoch = max(h["epoch"] for h in history) + 1
         if os.path.exists(self.paths["latest"]):
             ckpt = load_checkpoint_into(self.model, self.paths["latest"], self.cfg, self.head)
@@ -239,13 +246,16 @@ class HeadTrainer:
             print(f"{self.head} training already complete for epochs={cfg.epochs}; loaded {len(history)} rows")
             return history
         for epoch in range(start_epoch, cfg.epochs + 1):
+            t0 = time.monotonic()
             train_scores = self.run_epoch(epoch, train=True)
             val_scores = self.run_epoch(epoch, train=False)
             row = {"epoch": epoch, **{f"train_{k}": v for k, v in train_scores.items()}, **{f"val_{k}": v for k, v in val_scores.items()}}
+            row["epoch_time_s"] = time.monotonic() - t0
             history.append(row)
-            improved = row["val_loss"] < best_val
+            score = selection_score(cfg, row)
+            improved = score < best_val
             if improved:
-                best_val = row["val_loss"]
+                best_val = score
             if epoch > cfg.warmup_epochs:
                 self.scheduler.step(row["val_loss"])
             self._save(epoch, best_val, history, improved)

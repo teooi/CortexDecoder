@@ -29,9 +29,15 @@ def clip_embedding_eval(cfg, data, prediction, out_dir):
     image_cos = F.cosine_similarity(pred.flatten(1), true.flatten(1), dim=1).numpy()
     token_cos = F.cosine_similarity(pred, true, dim=-1).mean(dim=1).numpy()
     image_mse = ((pred - true) ** 2).flatten(1).mean(dim=1).numpy()
+    # Cheap proxies for reconstruction CLIP/Inception: can the predicted tokens tell images apart?
+    sim = _pearson_matrix(pred.flatten(1), true.flatten(1))
+    retr_img, retr_brain = retrieval_score(pred.flatten(1), true.flatten(1), seed=cfg.seed, n_samples=min(300, len(idx)))
     row = {
         "subject": cfg.subject,
         "N": len(idx),
+        "token_two_way": float((sim < sim.diag()[None, :]).float().sum(0).mean() / (len(idx) - 1)),
+        "token_retrieval_img": retr_img,
+        "token_retrieval_brain": retr_brain,
         "clip_mse": float(np.mean(image_mse)),
         "clip_cos_flat_mean": float(np.mean(image_cos)),
         "clip_cos_flat_median": float(np.median(image_cos)),
@@ -61,6 +67,13 @@ def clip_embedding_eval(cfg, data, prediction, out_dir):
     plt.tight_layout()
     save_figure(fig, f"{hist_dir}/{cfg.subject}_clip_cos_flat_hist.png")
     return row
+
+
+def _pearson_matrix(a, b):
+    """[i, j] = Pearson r between row i of `a` (preds) and row j of `b` (targets)."""
+    a = F.normalize(a.float() - a.float().mean(1, keepdim=True), dim=1)
+    b = F.normalize(b.float() - b.float().mean(1, keepdim=True), dim=1)
+    return b @ a.T  # rows: targets, cols: preds (same layout as two_way_score)
 
 
 # --- final reconstruction metrics (MindEye2 table) ---------------------------

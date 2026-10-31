@@ -1,5 +1,22 @@
 # old IEEE version of the paper
-paper/
+papers/IEEE_paper/
+
+# pristine AAAI author kit (the paper lives in papers/AAAI_workshop_paper/)
+papers/AAAI_paper/
+
+# third-party reference code and examples (not part of this project)
+code/extra/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# archives / backups
+*.zip
+
+# AAAI author-kit Word templates (paper is written in LaTeX)
+papers/**/Word/
 
 # latex build artifacts
 *.aux
@@ -20,6 +37,8 @@ paper/
 *.run.xml
 *.xdv
 
+# compiled PDFs are build output, but figure PDFs are paper sources
 *.pdf
+!papers/**/Figures/*.pdf
 
 .DS_Store

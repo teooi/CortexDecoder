@@ -218,8 +218,38 @@ def _check_semantic_losses(data, brain, ids):
         pass
     print("ablation naming + checkpoint guards ok")
 
+    import tempfile
+
+    from cortexdecoder.evaluation.metrics import clip_embedding_eval
+
+    shared = sorted(data.shared_ids)[:50]
+    true = data.clip_targets_for_ids(shared).float()
+    # Exact predictions must be perfectly identifiable; row-shuffled predictions must sit at chance (~0.5).
+    for name, pred in [("exact", true), ("shuffled", true[torch.randperm(len(true))])]:
+        fake = {"shared_img_ids": shared, "pred_clip_tokens": pred.half()}
+        row = clip_embedding_eval(clip_config(final_eval_images=50), data, fake, tempfile.mkdtemp())
+        print(f"{name}: two_way={row['token_two_way']:.3f} retrieval={row['token_retrieval_img']:.3f}")
+        assert (row["token_two_way"] > 0.99) if name == "exact" else (0.3 < row["token_two_way"] < 0.7), row
+    print("clip embedding proxies ok")
+
 
 ABLATION_KEYS = ("clip_loss", "clip_temperature", "n_layers", "n_heads")
+
+
+def _parse_extra(extra):
+    """--extra "batch_size=256,lr=1e-3,best_metric=val_cos" -> any Config field; values are typed by literal."""
+    out = {}
+    for item in filter(None, (s.strip() for s in extra.split(","))):
+        key, _, raw = item.partition("=")
+        for cast in (int, float):
+            try:
+                out[key.strip()] = cast(raw)
+                break
+            except ValueError:
+                continue
+        else:
+            out[key.strip()] = {"true": True, "false": False}.get(raw.lower(), raw)
+    return out
 
 
 @app.local_entrypoint()
@@ -233,7 +263,11 @@ def main(
     clip_temperature: float = 0.0,
     n_layers: int = 0,
     n_heads: int = 0,
+    oracle_clip: bool = False,
+    semantic_target: str = "",
+    extra: str = "",
 ):
+
     """--timestamp new starts fresh runs; 0 / "" keep each stage's notebook default.
 
     Semantic-loss ablation against an existing VGG run:
@@ -246,9 +280,11 @@ def main(
     for key, value in [
         ("vgg_timestamp", vgg_timestamp), ("epochs", epochs), ("final_eval_images", final_eval_images),
         ("clip_loss", clip_loss), ("clip_temperature", clip_temperature), ("n_layers", n_layers), ("n_heads", n_heads),
+        ("oracle_clip", oracle_clip), ("semantic_target", semantic_target),
     ]:
         if value:
             overrides[key] = value
+    overrides.update(_parse_extra(extra))
     print(f"stage={stage} overrides={overrides}")
 
     if stage == "vgg":

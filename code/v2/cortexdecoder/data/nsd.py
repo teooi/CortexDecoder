@@ -129,7 +129,10 @@ class NSDSubjectData:
     def load_session(self, sess, split="train"):
         """Return (brain_tokens, img_ids) for one session filtered to `split`, or None to skip it."""
         key = (int(sess), split)
-        if self.cfg.cache_sessions_in_ram and key in self._session_cache:
+        # Val trials are ~5% of each session (a few GB total), so they are always cached; re-reading every
+        # session from the volume each epoch just to pull them dominated the val pass.
+        cache = self.cfg.cache_sessions_in_ram or split == "val"
+        if cache and key in self._session_cache:
             return self._session_cache[key]
         if int(sess) in self.bad_sessions:
             return None
@@ -140,8 +143,8 @@ class NSDSubjectData:
             tokens, ids = tokens[keep], ids[keep]
             if tokens.shape[0] == 0:
                 return None
-            if self.cfg.cache_sessions_in_ram:
-                self._session_cache[key] = (tokens, ids)
+            if cache:
+                self._session_cache[key] = (tokens, ids)  # boolean indexing above already copied the rows
             return tokens, ids
         except Exception as exc:
             print(f"[bad session] {self.subject} session {sess:02d}: {exc}; skipping")

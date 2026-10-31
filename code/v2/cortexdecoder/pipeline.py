@@ -95,6 +95,9 @@ def run_final_stage(cfg, commit=noop):
     commit()
 
     prediction = load_predictions(cfg.subject, lowlevel_dir, {"vgg": lowlevel_dir, "clip": out_dir})
+    if cfg.oracle_clip and cfg.semantic_target == "image_tokens":
+        print("ORACLE: conditioning diffusion on ground-truth CLIP tokens")
+        prediction["pred_clip_tokens"] = data.clip_targets_for_ids(prediction["shared_img_ids"]).half()
     stimuli = StimulusImages(cfg.data_dir)
     tokenizer = BrainITVGGTokenizer().to(DEVICE).eval()
     dip_manifest = run_dip_inversion(base, tokenizer, stimuli, prediction, lowlevel_dir, on_batch_end=commit)
@@ -102,10 +105,19 @@ def run_final_stage(cfg, commit=noop):
     del tokenizer
     commit()
 
-    combined = load_combined_model(cfg)
-    diffusion_manifest = diffuse(cfg, combined, data, dip_manifest, prediction, out_dir, on_batch_end=commit)
-    combined.to("cpu")
-    del combined
+    if cfg.semantic_target == "text_tokens":
+        if not cfg.oracle_clip:
+            raise NotImplementedError("text-token bridge not built yet; run text_tokens with --oracle-clip")
+        from .reconstruction.sdxl_text import diffuse_text, load_sdxl_img2img
+        print("ORACLE: conditioning SDXL on ground-truth caption embeddings")
+        pipe = load_sdxl_img2img(cfg)
+        diffusion_manifest = diffuse_text(cfg, pipe, data, dip_manifest, out_dir, on_batch_end=commit)
+        del pipe
+    else:
+        combined = load_combined_model(cfg)
+        diffusion_manifest = diffuse(cfg, combined, data, dip_manifest, prediction, out_dir, on_batch_end=commit)
+        combined.to("cpu")
+        del combined
     commit()
 
     evaluate_final(cfg, data, stimuli, diffusion_manifest, prediction, out_dir)
