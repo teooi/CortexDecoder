@@ -15,6 +15,9 @@ from ..core.figures import plt, save_figure
 
 IMAGENET_MEAN, IMAGENET_STD = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
 CLIP_MEAN, CLIP_STD = [0.48145466, 0.4578275, 0.40821073], [0.26862954, 0.26130258, 0.27577711]
+# SigLIP 2 metric: So400m/14 pooled (MAP-head) embedding, a different model from the g/16 that conditions the
+# SigLIP2 decoder, as OpenAI ViT-L/14 (the CLIP metric) differs from the bigG that conditions MindEye2.
+SIGLIP2_EVAL_MODEL = "google/siglip2-so400m-patch14-384"
 
 
 # --- predicted vs actual CLIP embeddings (semantic branch, before diffusion) ---
@@ -143,6 +146,8 @@ class FeatureMetrics:
         self.effnet = frozen(create_feature_extractor(efficientnet_b1(weights=EfficientNet_B1_Weights.DEFAULT), return_nodes={"avgpool": "pool"}))
         clip_model, _, _ = open_clip.create_model_and_transforms("ViT-L-14", pretrained="openai", device=DEVICE)
         self.clip = frozen(clip_model)
+        from transformers import AutoModel
+        self.siglip2 = frozen(AutoModel.from_pretrained(SIGLIP2_EVAL_MODEL, cache_dir=f"{cfg.data_dir}/external_models/huggingface"))
         self.swav = None
         if cfg.run_swav_eval:
             self.swav = frozen(create_feature_extractor(torch.hub.load("facebookresearch/swav:main", "resnet50"), return_nodes={"avgpool": "pool"}))
@@ -161,10 +166,15 @@ class FeatureMetrics:
             "inception": self._extract(x, lambda b: self.inception(norm_batch(b, 342, IMAGENET_MEAN, IMAGENET_STD))["pool"]),
             "clip": self._extract(x, lambda b: self.clip.encode_image(norm_batch(b, 224, CLIP_MEAN, CLIP_STD))),
             "eff": self._extract(x, lambda b: self.effnet(norm_batch(b, 255, IMAGENET_MEAN, IMAGENET_STD))["pool"]),
+            "siglip2": self._extract(x, lambda b: _pooled(self.siglip2.get_image_features(pixel_values=norm_batch(b, 384, [0.5] * 3, [0.5] * 3)))),
         }
         if self.swav is not None:
             feats["swav"] = self._extract(x, lambda b: self.swav(norm_batch(b, 224, IMAGENET_MEAN, IMAGENET_STD))["pool"])
         return feats
+
+
+def _pooled(out):
+    return getattr(out, "pooler_output", out)  # newer transformers return a model output, older a tensor
 
 
 def save_image_exports(export_root, subject, img_ids, true_images, low_images, final_images):
@@ -241,12 +251,16 @@ def evaluate_final(cfg, data, stimuli, diffusion_manifest, prediction, out_dir):
             "AlexNet(5)": two_way_score(recon_feats["alex5"], true_feats["alex5"]),
             "InceptionV3": two_way_score(recon_feats["inception"], true_feats["inception"]),
             "CLIP": two_way_score(recon_feats["clip"], true_feats["clip"]),
+            "SigLIP2": two_way_score(recon_feats["siglip2"], true_feats["siglip2"]),
             "EffNet-B": correlation_distance(recon_feats["eff"], true_feats["eff"]),
         }
         if "swav" in true_feats:
             row["SwAV"] = correlation_distance(recon_feats["swav"], true_feats["swav"])
         row["ImageRetrieval"], row["BrainRetrieval"] = retrieval_score(
             recon_feats["clip"], true_feats["clip"], seed=cfg.seed, n_samples=min(300, len(recons)),
+        )
+        row["SigLIP2ImageRetrieval"], row["SigLIP2BrainRetrieval"] = retrieval_score(
+            recon_feats["siglip2"], true_feats["siglip2"], seed=cfg.seed, n_samples=min(300, len(recons)),
         )
         rows.append(row)
 

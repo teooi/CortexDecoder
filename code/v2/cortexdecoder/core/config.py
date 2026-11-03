@@ -19,6 +19,8 @@ SAMPLE_TOKENS_PER_LAYER = [512, 512, 128, 64, 16]
 # OpenCLIP ViT-bigG/14 internal image patch tokens.
 CLIP_DIM = 1664
 CLIP_NUM_QUERIES = 256
+# SigLIP 2 giant/16 @256 patch tokens (same 256 queries); see scripts/extract_siglip2_targets.py.
+SIGLIP2_DIM = 1536
 
 SHARED1000_EVAL_SIZE = 1000
 TRIALS_PER_SESSION = 750
@@ -28,7 +30,11 @@ HEADS = ("vgg", "clip")
 
 # Ablation knobs -> short run-dir tag. A run whose knobs are all at their defaults gets no tag,
 # so baseline run dirs keep the v1 notebook names.
-ABLATION_TAGS = {"clip_loss": "loss", "clip_temperature": "T", "n_layers": "L", "n_heads": "H"}
+ABLATION_TAGS = {"clip_loss": "loss", "clip_temperature": "T", "n_layers": "L", "n_heads": "H", "semantic_target": "sem",
+                 "decoder_loss_weight": "dec", "roi": "roi", "memory_pos_embed": "pos"}
+# Per-patch nsdgeneral coverage on the CortexMAE patch grid (scripts/roi_overlap.py); template space, so subject-independent.
+ROI_COVERAGE_FILE = "outputs/token_diagnostics/subj01_roi_overlap.json"
+CORTEXMAE_TEMPORAL = 4  # tokens are time-major: [4 time chunks x 364 patches]
 
 
 @dataclass(frozen=True)
@@ -62,6 +68,18 @@ class Config:
     clip_loss: str = "mse"  # see training/losses.py:build_clip_loss, e.g. "mse+0.5*cosine"
     clip_temperature: float = 0.07  # CLIP InfoNCE terms
     best_metric: str = "val_loss"  # "val_loss" | "val_cos"; use val_cos to compare runs with different losses
+    # Decoder-aware fine-tuning: clip_loss + decoder_loss_weight * frozen unCLIP diffusion loss (training/decoder_loss.py).
+    decoder_loss_weight: float = 0.0
+    decoder_loss_batch: int = 32  # samples per batch that get the (costly) diffusion term; the clip loss uses all
+    decoder_t_max: int = 640  # highest timestep visited by img2img from start step 14 of 38
+    init_checkpoint: str = ""  # bridge weights to start from (fine-tuning) when the run has no checkpoint yet
+    # Semantic-bridge ROI: "nsdgeneral" keeps patches with >= roi_min_coverage nsdgeneral coverage (time copies averaged,
+    # standardized with train-set statistics); "all" feeds every token.
+    roi: str = "all"
+    roi_min_coverage: float = 0.5
+    # Learned positional embedding added to the bridge memory (one per brain token). Off by default: CortexMAE already
+    # adds positional embeddings at its input, so its output tokens carry their location.
+    memory_pos_embed: bool = False
     cache_sessions_in_ram: bool = False
     run_vgg_batch_audit: bool = True
 
@@ -89,7 +107,7 @@ class Config:
     # BrainIT/MindEye2 diffusion.
     diffusion_start_step: int = 14
     diffusion_num_steps: int = 38
-    diffusion_ensemble_size: int = 10
+    diffusion_ensemble_size: int = 1  # best-of-N vs the DIP image moved PixCorr +0.012 and semantics ~0 (v1, N=998)
     diffusion_batch_size: int = 40  # total candidates per model call
     save_diffusion_candidates: bool = True
     diffusion_auto_split_on_oom: bool = True
@@ -100,7 +118,8 @@ class Config:
     rerun_diffusion: bool = False
     diffusion_experiment_name: str = ""
     oracle_clip: bool = False  # diagnostic: condition diffusion on ground-truth semantics instead of predictions
-    semantic_target: str = "image_tokens"  # "image_tokens" (bigG 256x1664, MindEye2 unCLIP) | "text_tokens" (SDXL 77x2048 + pooled)
+    semantic_target: str = "image_tokens"  # "image_tokens" (bigG 256x1664, MindEye2 unCLIP) | "siglip2_tokens" (256x1536, SigLIP2 unCLIP) | "text_tokens" (SDXL 77x2048 + pooled)
+    siglip2_unclip_ckpt: str = "outputs/production_siglip2_unclip_siglip2_unclip_v4/siglip2_unclip_best.pt"
     caption_index: int = 0  # which COCO caption to use for text targets
     sdxl_guidance_scale: float = 5.0
     sdxl_batch_size: int = 20  # candidates per SDXL call at 1024px
@@ -150,6 +169,10 @@ class Config:
             vgg_timestamp="",
             **{name: defaults[name] for name in ABLATION_TAGS},
         )
+
+    @property
+    def semantic_dim(self):
+        return SIGLIP2_DIM if self.semantic_target == "siglip2_tokens" else CLIP_DIM
 
     @property
     def dip_target_source(self):

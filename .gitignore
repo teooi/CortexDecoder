@@ -4,8 +4,20 @@ papers/IEEE_paper/
 # pristine AAAI author kit (the paper lives in papers/AAAI_workshop_paper/)
 papers/AAAI_paper/
 
-# third-party reference code and examples (not part of this project)
+# third-party reference code, papers and examples (not part of this project)
 code/extra/
+
+# local planning notes and specs
+.plans/
+
+# exploratory analyses and figures not used in the paper (kept locally)
+code/v2/scripts/exploration/
+papers/AAAI_workshop_paper/Figures/unused/
+
+# editor / assistant local state
+.vscode/
+.idea/
+.claude/
 
 # python
 __pycache__/

@@ -63,15 +63,15 @@
 
 \setcounter{secnumdepth}{0} %May be changed to 1 or 2 if section numbers are desired.
 
-\title{CortexDecoder: fMRI-to-Image Reconstruction from Cortical Flatmaps}
+\title{CortexDecoder: Image Reconstruction from Cortical Flatmaps}
 \author{
     Teo Imoto-Tar\textsuperscript{\rm 1},
     Maxwell Fung\textsuperscript{\rm 2},
     Arnav Gurha\textsuperscript{\rm 1}
 }
 \affiliations{
-    \textsuperscript{\rm 1}UC San Diego\\
-    \textsuperscript{\rm 2}UC Berkeley\\
+    \textsuperscript{\rm 1}University of California, San Diego\\
+    \textsuperscript{\rm 2}University of California, Berkeley\\
     timototar@ucsd.edu, maxwellfung@berkeley.edu, agurha@ucsd.edu
 }
 
@@ -80,7 +80,7 @@
 \maketitle
 
 \begin{abstract}
-Recent advances in brain decoding have shown the potential of vision transformers (ViTs) to learn mappings from neural representations to visual features. Here we present CortexDecoder, a brain decoding framework that maps fMRI flatmaps to the images viewed by subjects. Flatmaps are neural responses projected onto the cortical surface and then unfolded into 2D images. We demonstrate that (1) flatmaps preserve sufficient signal to achieve high performance in brain decoding, whereas raw fMRI data is noisy and high-dimensional, which makes decoding difficult; and (2) reshaping raw fMRI data into flatmaps allows for clean patch-based tokenization. This lets us harness state-of-the-art ViTs to learn meaningful neural representations while preserving spatial encoding. To do this, we pass flatmap patches into a pretrained CortexMAE encoder to obtain brain tokens. A lightweight cross-attention bridge then learns to map these brain tokens to image features. The bridge is split into two modules: a semantic module that predicts CLIP embeddings and a low-level module that generates a low-level image reconstruction. Finally, a fine-tuned SDXL (Stable Diffusion XL) model takes this low-level reconstruction as its initial image and, conditioned on the predicted CLIP embedding, produces the final reconstruction. In evaluations on two NSD subjects, CortexDecoder achieves performance comparable to state-of-the-art brain decoding methods, demonstrating the efficacy of flatmap-based neural representations for visual reconstruction.
+Recent advances in brain decoding work has shown the potential of Vision Transformers (ViTs) to learn mappings from neural representation to visual features. Here we present CortexDecoder, a brain decoding framework mapping functional magnetic resonance imaging (fMRI) flatmaps to images viewed by subjects. Flatmaps are neural responses projected onto cortical surfaces and then unfolded into 2D images. We pioneer a novel architecture for cortical flatmap decoding and demonstrate (1) our model benefits from context across the entire cortex superseding the requirement for task-specific region-of-interest (ROI) masks and (2) an attention based approach achieves superior performance to other fMRI-to-image decoding models with far fewer parameters. To do this, we pass flatmap patches into a pretrained CortexMAE encoder to obtain brain tokens. A lightweight cross-attention bridge then learns to map these brain tokens to image features. Our cross-attention bridge is split into two modules; the semantic module for predicting CLIP embeddings and the lower-level module to generate low-level image reconstruction. Finally, a frozen SDXL-unCLIP (Stable Diffusion XL) model takes this low-level reconstruction as its initial image and, conditioned on the predicted CLIP embedding, produces the final reconstruction. In evaluations on (Natural Scenes Dataset) NSD Subject 1, CortexDecoder achieves performance competitive with prior brain decoding methods while training only about 83M parameters, demonstrating that a frozen cortical foundation model can support visual reconstruction. All code will be available at https://github.com/teooi/CortexDecoder.rtexDecoder.
 \end{abstract}
 
 % Uncomment the following to link to your code, datasets, an extended version or similar.
@@ -234,40 +234,35 @@ We first add Gaussian noise to the low-level image to partially corrupt fine det
 \toprule
 & & \multicolumn{4}{c}{Low-Level} & \multicolumn{4}{c}{High-Level} \\
 \cmidrule(lr){3-6}\cmidrule(lr){7-10}
-\multicolumn{2}{l}{\textbf{Method}}
+\textbf{Method} & \textbf{Input}
 & PixCorr$\uparrow$ & SSIM$\uparrow$ & Alex(2)$\uparrow$ & Alex(5)$\uparrow$
 & Incep$\uparrow$ & CLIP$\uparrow$ & Eff$\downarrow$ & SwAV$\downarrow$ \\
 \midrule
-\multirow{5}{*}{\shortstack{Voxel-\\based}}
-& Takagi \textit{et al.}$^\ddagger$ \cite{10205187}
-& 0.246 & 0.410 & 78.9\% & 85.6\%
-& 83.8\% & 82.1\% & 0.811 & 0.504 \\
-& Brain-Diffuser$^\ddagger$ \cite{ozcelik2023brain}
-& 0.273 & 0.365 & 94.4\% & 96.6\%
-& 91.3\% & 90.9\% & 0.728 & 0.421 \\
-& MindEye$^\ddagger$ \cite{scotti2023reconstructingmindseyefmritoimage}
-& 0.319 & 0.360 & 92.8\% & 96.9\%
-& 94.6\% & \underline{93.3\%} & 0.648 & 0.377 \\
-& MindEye2$^\dagger$ \cite{scotti2024mindeye2sharedsubjectmodelsenable}
-& \underline{0.322} & \underline{0.431} & 96.1\% & \underline{98.6\%}
-& \underline{95.4\%} & 93.0\% & \underline{0.619} & \underline{0.344} \\
-& Brain-IT$^\dagger$ \cite{beliy2025brainitimagereconstructionfmri}
-& \textbf{0.386} & \textbf{0.486} & \textbf{98.4\%} & \textbf{99.5\%}
-& \textbf{97.3\%} & \textbf{96.4\%} & \textbf{0.564} & \textbf{0.320} \\
+MindEye1$^\ast$ \cite{scotti2023reconstructingmindseyefmritoimage} & Voxels
+& \textbf{0.390} & 0.337 & 97.4\% & 98.7\%
+& 94.5\% & \textbf{94.6\%} & 0.630 & 0.358 \\
+MindEye2$^\dagger$ \cite{scotti2024mindeye2sharedsubjectmodelsenable} & Voxels
+& 0.374 & \textbf{0.439} & 97.8\% & \underline{99.1\%}
+& \textbf{96.2\%} & 93.6\% & \textbf{0.609} & \underline{0.338} \\
+NeuroPictor$^\dagger$ \cite{huo2024neuropictorrefiningfmritoimagereconstruction} & Flatmap
+& 0.277 & 0.385 & \textbf{98.8\%} & \textbf{99.3\%}
+& \textbf{96.2\%} & \underline{94.5\%} & \underline{0.619} & \textbf{0.334} \\
+\textbf{CortexDecoder (ours)}$^\ast$ & Flatmap
+& \underline{0.377} & \underline{0.417} & \underline{97.9\%} & 99.0\%
+& \underline{94.9\%} & 93.2\% & 0.640 & 0.372 \\
 \midrule
-\multirow{3}{*}{Flatmap}
-& NeuroPictor$^\dagger$ \cite{huo2024neuropictorrefiningfmritoimagereconstruction}
-& 0.229 & 0.375 & \underline{96.5\%} & 98.4\%
-& 94.5\% & \underline{93.3\%} & 0.639 & 0.350 \\
-& \textbf{CortexDecoder (Low-Level)}
-& 0.321 & 0.393 & 94.4\% & 97.9\%
-& 89.7\% & 74.3\% & 0.856 & 0.590 \\
-& \textbf{CortexDecoder (Final)}
-& 0.311 & 0.408 & 93.2\% & 96.1\%
-& 91.4\% & 89.9\% & 0.697 & 0.404 \\
+Brain-Diffuser (low-level)$^\S$ \cite{ozcelik2023brain} & Voxels
+& 0.358 & 0.437 & 97.7\% & 97.6\%
+& 77.0\% & 71.1\% & 0.906 & 0.581 \\
+MindEye1 (low-level)$^\S$ \cite{scotti2023reconstructingmindseyefmritoimage} & Voxels
+& 0.456 & 0.493 & 87.1\% & 84.1\%
+& 61.6\% & 62.4\% & 0.992 & 0.638 \\
+CortexDecoder (low-level) & Flatmap
+& 0.390 & 0.407 & 97.6\% & 99.2\%
+& 90.9\% & 75.9\% & 0.845 & 0.580 \\
 \bottomrule
 \end{tabular*}
-\caption{Reconstruction metrics on NSD shared1000. CortexDecoder results are averaged over Subjects 1 and 2; baseline results are averaged over Subjects 1, 2, 5 and 7. Baselines are grouped by fMRI input representation and taken as reported by each paper, except $^\ddagger$, which are recomputed by MindEye2 \cite{scotti2024mindeye2sharedsubjectmodelsenable} on the full 40 sessions. \textbf{Bold}: best; \underline{underline}: second best. $^\dagger$Pretrains on multiple subjects.}
+\caption{Reconstruction metrics on the NSD shared1000 test images, Subject 1 only. Baselines are taken from each paper's Subject-1 results: NeuroPictor, MindEye1 (Table 7) and MindEye2 (40 sessions, Table 7). Rows in each block are ordered by publication date. The bottom block scores each method's low-level image alone, before diffusion; $^\S$Subject-1 low-level results from MindEye1 (Table 1). \textbf{Bold}: best; \underline{underline}: second best (top block only). $^\dagger$Pretrains on multiple subjects. $^\ast$Selects the best of several diffusion samples (MindEye1: 16; ours: 10).}
 \label{tab:reconstruction}
 \end{table*}
 

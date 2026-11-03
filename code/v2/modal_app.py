@@ -118,6 +118,61 @@ def final_diffusion(overrides: dict):
     return out_dir
 
 
+@gpu_function
+def decoder_loss_probe(overrides: dict):
+    """One training batch through the decoder-aware loss: memory, step time, gradient sizes, and whether the frozen
+    unCLIP's diffusion loss actually depends on the conditioning (true < predicted < shuffled tokens)."""
+    import torch
+
+    from cortexdecoder.core.common import DEVICE
+    from cortexdecoder.core.config import clip_config
+    from cortexdecoder.data.nsd import NSDSubjectData
+    from cortexdecoder.data.stimuli import StimulusImages
+    from cortexdecoder.training.trainer import HeadTrainer
+
+    cfg = clip_config(**overrides)
+    data = NSDSubjectData(cfg)
+    trainer = HeadTrainer(cfg, data, "clip", "/tmp/probe", stimuli=StimulusImages(cfg.data_dir))
+    trainer._resume()  # loads init_checkpoint
+    volume.commit()  # persist the VAE latent cache
+    brain, ids = data.load_session(data.sessions[0], split="train")
+    brain, ids = brain[:cfg.batch_size].to(DEVICE).float(), ids[:cfg.batch_size]
+    k = cfg.decoder_loss_batch
+    target = data.clip_targets_for_ids(ids).to(DEVICE).float()
+    loss_fn, model = trainer.decoder_loss, trainer.model
+
+    def decoder_loss(tokens, seed=0, ids_=ids):
+        gen = torch.Generator(device=DEVICE).manual_seed(seed)
+        with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+            return float(loss_fn(tokens[:k], ids_[:k], generator=gen))
+
+    with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+        pred = model(brain)
+    seeds = range(8)  # average over noise draws: the per-batch diffusion loss is noisy
+    report = {name: sum(decoder_loss(tok, s) for s in seeds) / len(seeds) for name, tok in [
+        ("true_tokens", target), ("predicted_tokens", pred), ("shuffled_true_tokens", target.roll(1, dims=0)),
+        ("zero_tokens", torch.zeros_like(target))]}
+
+    grads = {}
+    for name in ["clip", "decoder"]:
+        model.zero_grad(set_to_none=True)
+        torch.cuda.reset_peak_memory_stats()
+        torch.cuda.synchronize()
+        t0 = time.monotonic()
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            out = model(brain)
+            loss = trainer.clip_loss_fn(out, target)[0] if name == "clip" else loss_fn(out[:k], ids[:k])
+        loss.backward()
+        torch.cuda.synchronize()
+        grads[name] = {"loss": float(loss), "seconds": time.monotonic() - t0,
+                       "grad_norm": float(torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"))),
+                       "peak_mem_gb": torch.cuda.max_memory_allocated() / 1e9}
+    report["grads"] = grads
+    report["lambda_for_equal_grad_norm"] = grads["clip"]["grad_norm"] / max(grads["decoder"]["grad_norm"], 1e-12)
+    print(report)
+    return report
+
+
 @app.function(volumes={DATA_DIR: volume}, timeout=30 * 60, memory=32768)
 def smoke_test():
     """CPU-only checks against real volume data: splits, both bridge heads, losses, VGG token round-trip, figures."""

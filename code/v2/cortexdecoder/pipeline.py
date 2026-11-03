@@ -50,7 +50,8 @@ def run_clip_stage(cfg, commit=noop):
     from .training.trainer import HeadTrainer
 
     data, out_dir = _setup(cfg, "clip")
-    HeadTrainer(cfg, data, "clip", out_dir).fit(on_epoch_end=commit)
+    stimuli = StimulusImages(cfg.data_dir) if cfg.decoder_loss_weight > 0 else None
+    HeadTrainer(cfg, data, "clip", out_dir, stimuli=stimuli).fit(on_epoch_end=commit)
 
     predict_shared1000(cfg, data, "clip", best_or_latest_checkpoint(out_dir, "clip"), out_dir)
     write_manifest(f"{out_dir}/transfer_clip_prediction_manifest.json", {cfg.subject: _manifest_entry(out_dir, cfg.subject, ["clip"])})
@@ -95,8 +96,8 @@ def run_final_stage(cfg, commit=noop):
     commit()
 
     prediction = load_predictions(cfg.subject, lowlevel_dir, {"vgg": lowlevel_dir, "clip": out_dir})
-    if cfg.oracle_clip and cfg.semantic_target == "image_tokens":
-        print("ORACLE: conditioning diffusion on ground-truth CLIP tokens")
+    if cfg.oracle_clip and cfg.semantic_target != "text_tokens":
+        print(f"ORACLE: conditioning diffusion on ground-truth {cfg.semantic_target}")
         prediction["pred_clip_tokens"] = data.clip_targets_for_ids(prediction["shared_img_ids"]).half()
     stimuli = StimulusImages(cfg.data_dir)
     tokenizer = BrainITVGGTokenizer().to(DEVICE).eval()
@@ -114,7 +115,11 @@ def run_final_stage(cfg, commit=noop):
         diffusion_manifest = diffuse_text(cfg, pipe, data, dip_manifest, out_dir, on_batch_end=commit)
         del pipe
     else:
-        combined = load_combined_model(cfg)
+        if cfg.semantic_target == "siglip2_tokens":
+            from .reconstruction.siglip2_unclip import SigLIP2UnCLIP
+            combined = SigLIP2UnCLIP(cfg)
+        else:
+            combined = load_combined_model(cfg)
         diffusion_manifest = diffuse(cfg, combined, data, dip_manifest, prediction, out_dir, on_batch_end=commit)
         combined.to("cpu")
         del combined

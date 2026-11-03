@@ -24,7 +24,7 @@ Config knobs live in `code/v2/cortexdecoder/core/config.py`; any field can be pa
 ```
 code/v2/   pipeline (Python package + Modal app)
 code/v1/   original notebooks
-papers/    AAAI workshop paper
+papers/    AAAI workshop paper (AAAI_workshop_paper/), earlier IEEE draft (wacv_paper/)
 results/   evaluation tables
 ```
 

@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from tqdm.auto import tqdm
 
 from ..core.common import DEVICE, noop, require_file, torch_load_cpu
-from ..core.config import CLIP_DIM, CLIP_NUM_QUERIES
+from ..core.config import CLIP_NUM_QUERIES
 from ..data.nsd import rows_for_ids
 
 
@@ -242,8 +242,8 @@ def load_diffusion_inputs(cfg, data, dip_manifest, prediction):
         raise ValueError(f"{cfg.subject} diffusion inputs include non-heldout image IDs")
     rows = rows_for_ids(shared_ids, lowlevel_ids, f"{cfg.subject} predicted CLIP tokens")
     clip_tokens = prediction["pred_clip_tokens"][rows].float().contiguous()
-    if tuple(clip_tokens.shape[1:]) != (CLIP_NUM_QUERIES, CLIP_DIM):
-        raise ValueError(f"expected CLIP tokens [B, {CLIP_NUM_QUERIES}, {CLIP_DIM}], got {tuple(clip_tokens.shape)}")
+    if tuple(clip_tokens.shape[1:]) != (CLIP_NUM_QUERIES, cfg.semantic_dim):
+        raise ValueError(f"expected semantic tokens [B, {CLIP_NUM_QUERIES}, {cfg.semantic_dim}], got {tuple(clip_tokens.shape)}")
     if len(clip_tokens) != len(lowlevel_images):
         raise ValueError(f"low-level/CLIP row mismatch: lowlevel={len(lowlevel_images)} clip={len(clip_tokens)}")
     return lowlevel_images.contiguous(), clip_tokens, lowlevel_ids

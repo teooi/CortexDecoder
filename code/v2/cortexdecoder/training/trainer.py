@@ -41,8 +41,8 @@ def assert_checkpoint_compatible(ckpt, path, cfg, head):
     if ckpt.get("domain") != head:
         raise ValueError(f"checkpoint domain={ckpt.get('domain')!r} does not match head={head!r}: {path}")
     # v1 checkpoints predate these keys; they were all trained with the defaults.
-    defaults = {"n_layers": 4, "n_heads": 8, "clip_loss": "mse", "clip_temperature": 0.07}
-    keys = ["n_layers", "n_heads"] + (["clip_loss", "clip_temperature"] if head == "clip" else [])
+    defaults = {"n_layers": 4, "n_heads": 8, "clip_loss": "mse", "clip_temperature": 0.07, "semantic_target": "image_tokens"}
+    keys = ["n_layers", "n_heads"] + (["clip_loss", "clip_temperature", "semantic_target"] if head == "clip" else [])
     for key in keys:
         if ckpt.get(key, defaults[key]) != getattr(cfg, key):
             raise ValueError(f"checkpoint {key}={ckpt.get(key, defaults[key])!r} does not match config {getattr(cfg, key)!r}: {path}")
@@ -63,8 +63,12 @@ def checkpoint_payload(cfg, data, head, model, opt, scheduler, epoch, best_val):
         "epoch": int(epoch),
         "best_val": float(best_val),
         "domain": head,
-        "source_checkpoint": None,
-        "initialization": "scratch",
+        "source_checkpoint": cfg.init_checkpoint or None,
+        "initialization": "finetune" if cfg.init_checkpoint else "scratch",
+        "decoder_loss_weight": cfg.decoder_loss_weight,
+        "decoder_t_max": cfg.decoder_t_max,
+        "roi": cfg.roi,
+        "roi_min_coverage": cfg.roi_min_coverage,
         "architecture": architecture_name(cfg, head),
         "subjects": [cfg.subject],
         "num_flatmap_patches": data.num_patches,
@@ -74,6 +78,7 @@ def checkpoint_payload(cfg, data, head, model, opt, scheduler, epoch, best_val):
         "n_heads": cfg.n_heads,
         "clip_loss": cfg.clip_loss,
         "clip_temperature": cfg.clip_temperature,
+        "semantic_target": cfg.semantic_target,
         "train_epochs": int(cfg.epochs),
         "train_lr": cfg.lr,
         "split_policy": SPLIT_POLICY,
@@ -111,8 +116,12 @@ class HeadTrainer:
             self.opt, mode="min", factor=cfg.plateau_factor, patience=cfg.plateau_patience,
         )
         print(f"{head} single-head training params: {sum(p.numel() for p in self.model.parameters()) / 1e6:.1f}M")
+        self.decoder_loss = None
         if head == "clip":
             self.clip_loss_fn = build_clip_loss(cfg)
+            if cfg.decoder_loss_weight > 0:
+                from .decoder_loss import UnclipDiffusionLoss
+                self.decoder_loss = UnclipDiffusionLoss(cfg, data, stimuli)
 
     def batch_forward(self, brain_batch, id_batch, train):
         """Returns (pred, target, loss, loss_parts)."""
@@ -130,6 +139,12 @@ class HeadTrainer:
         with torch.set_grad_enabled(train), torch.autocast(device_type="cuda", dtype=AMP_DTYPE, enabled=USE_AMP):
             pred = self.model(brain_batch)
             loss, parts = self.clip_loss_fn(pred, target)
+            if self.decoder_loss is not None:
+                k = min(self.cfg.decoder_loss_batch, len(pred))
+                # val: noise fixed per batch so epochs are comparable; train: fresh noise every step
+                gen = None if train else torch.Generator(device=DEVICE).manual_seed(int(id_batch[:k].sum()))
+                parts["decoder"] = self.decoder_loss(pred[:k], id_batch[:k], generator=gen)
+                loss = loss + self.cfg.decoder_loss_weight * parts["decoder"]
         return pred, target, loss, parts
 
     def run_epoch(self, epoch, train=True):
@@ -223,8 +238,16 @@ class HeadTrainer:
             start_epoch = max(start_epoch, int(ckpt["epoch"]) + 1)
             best_val = min(best_val, float(ckpt["best_val"]))
             print(f"resuming {self.head} training from {self.paths['latest']}; next epoch={start_epoch}")
+        elif self.cfg.init_checkpoint:
+            ckpt = torch_load_cpu(self.cfg.init_checkpoint, map_location=DEVICE)
+            assert_checkpoint_compatible(ckpt, self.cfg.init_checkpoint, self.cfg, self.head)
+            self.model.load_state_dict(ckpt["model"])
+            print(f"fine-tuning {self.head} from {self.cfg.init_checkpoint} (its epoch {ckpt['epoch']})")
         else:
             print(f"starting {self.head} training from fresh random initialization")
+            if getattr(self.model, "roi_patches", None) is not None:
+                from ..models.bridge import fit_roi_stats
+                fit_roi_stats(self.model, self.data, DEVICE)
         return history, best_val, start_epoch
 
     def _save(self, epoch, best_val, history, is_best):
