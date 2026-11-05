@@ -83,12 +83,16 @@ def run_final_stage(cfg, commit=noop):
     print("source CLIP run:", cfg.run_dir("clip"))
     print("low-level (VGG preds + DIP) dir:", lowlevel_dir)
 
-    predict_shared1000(base, data, "vgg", best["vgg"], lowlevel_dir)
-    predict_shared1000(cfg, data, "clip", best["clip"], out_dir, shared_dir=lowlevel_dir)
+    # A semantic bridge on another brain-token set (e.g. encoder-level ROI) must not reuse the baseline's cached
+    # whole-cortex shared-1000 tokens; the VGG side always reads the baseline tokens.
+    same_tokens = cfg.brain_tokens == base.brain_tokens
+    clip_shared_dir = lowlevel_dir if same_tokens else out_dir
+    predict_shared1000(base, data if same_tokens else NSDSubjectData(base), "vgg", best["vgg"], lowlevel_dir)
+    predict_shared1000(cfg, data, "clip", best["clip"], out_dir, shared_dir=clip_shared_dir)
     write_manifest(f"{out_dir}/final_diffusion_prediction_manifest.json", {cfg.subject: {
         "pred_vgg_path": pred_tokens_path(lowlevel_dir, cfg.subject, "vgg"),
         "pred_clip_path": pred_tokens_path(out_dir, cfg.subject, "clip"),
-        "shared_tokens_path": shared_tokens_path(lowlevel_dir, cfg.subject),
+        "shared_tokens_path": shared_tokens_path(clip_shared_dir, cfg.subject),
         "shared_ids_path": shared_ids_path(lowlevel_dir, cfg.subject),
         "source_vgg_best_weights_path": best["vgg"],
         "source_clip_best_weights_path": best["clip"],

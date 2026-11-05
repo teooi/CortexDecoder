@@ -31,7 +31,7 @@ HEADS = ("vgg", "clip")
 # Ablation knobs -> short run-dir tag. A run whose knobs are all at their defaults gets no tag,
 # so baseline run dirs keep the v1 notebook names.
 ABLATION_TAGS = {"clip_loss": "loss", "clip_temperature": "T", "n_layers": "L", "n_heads": "H", "semantic_target": "sem",
-                 "decoder_loss_weight": "dec", "roi": "roi", "memory_pos_embed": "pos"}
+                 "decoder_loss_weight": "dec", "roi": "roi", "memory_pos_embed": "pos", "brain_tokens": "tok"}
 # Per-patch nsdgeneral coverage on the CortexMAE patch grid (scripts/roi_overlap.py); template space, so subject-independent.
 ROI_COVERAGE_FILE = "outputs/token_diagnostics/subj01_roi_overlap.json"
 CORTEXMAE_TEMPORAL = 4  # tokens are time-major: [4 time chunks x 364 patches]
@@ -77,6 +77,9 @@ class Config:
     # standardized with train-set statistics); "all" feeds every token.
     roi: str = "all"
     roi_min_coverage: float = 0.5
+    # Brain-token set under data_dir: "flatmap_tokens_fp16" (whole cortex) or "flatmap_tokens_roi-nsdgeneral_fp16"
+    # (encoder-level ROI, scripts/generate_roi_tokens.py: only nsdgeneral patches visible to CortexMAE).
+    brain_tokens: str = "flatmap_tokens_fp16"
     # Learned positional embedding added to the bridge memory (one per brain token). Off by default: CortexMAE already
     # adds positional embeddings at its input, so its output tokens carry their location.
     memory_pos_embed: bool = False

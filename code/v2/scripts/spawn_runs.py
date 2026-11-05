@@ -3,7 +3,7 @@
     modal deploy code/v2/modal_app.py      # once, and again after any code change
     python3 code/v2/scripts/spawn_runs.py clip '{"timestamp": "20261031_000000", "n_layers": 8}' '{...}'
 
-stage: vgg | clip | final. Each JSON object is one run's config overrides (same keys as modal_app.py --extra).
+stage: vgg | clip | final | clip+final. Each JSON object is one run's config overrides (same keys as modal_app.py --extra).
 Unlike `modal run --detach`, no local client stays attached, so nothing on this machine can cancel the calls.
 """
 import json
@@ -12,7 +12,7 @@ import sys
 import modal
 
 APP = "cortexdecoder-v2"
-FUNCTIONS = {"vgg": "train_vgg", "clip": "train_clip", "final": "final_diffusion"}
+FUNCTIONS = {"vgg": "train_vgg", "clip": "train_clip", "final": "final_diffusion", "clip+final": "train_clip_then_final"}
 
 
 def main(stage, *configs):

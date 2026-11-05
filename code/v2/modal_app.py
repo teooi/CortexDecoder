@@ -119,6 +119,67 @@ def final_diffusion(overrides: dict):
 
 
 @gpu_function
+def train_clip_then_final(overrides: dict):
+    """CLIP training (or resume) followed by final diffusion + eval on the same config, in one detached call."""
+    import os
+
+    train_clip.local(overrides)
+    os.chdir("/")  # final_diffusion's volume.reload() refuses while cwd is inside the volume
+    return final_diffusion.local(overrides)
+
+
+@gpu_function
+def resample_images(overrides: dict, img_ids: list, seed: int):
+    """Fresh best-of-N diffusion for a few shared-1000 images (paper figures) with a new seed.
+
+    Reuses the final run's DIP images and predicted tokens, so only the diffusion noise changes. Writes every candidate
+    and the selected sample as PNGs to outputs/figure_resamples/<final run>/seed<seed>/ on the volume.
+    """
+    import json
+    import os
+
+    from PIL import Image
+
+    from cortexdecoder.core.common import seed_everything, torch_load_cpu
+    from cortexdecoder.core.config import final_config
+    from cortexdecoder.reconstruction.diffusion import _generate_safe, load_combined_model, select_best_candidates
+    from cortexdecoder.reconstruction.dip import dip_paths
+    from cortexdecoder.reconstruction.predict import load_predictions
+
+    volume.reload()
+    cfg = final_config(**overrides)
+    base = cfg.baseline()
+    lowlevel_dir, run_dir = base.run_dir("final_diffusion"), cfg.run_dir("final_diffusion")
+    dip = dip_paths(base, lowlevel_dir)
+    with open(dip["img_ids_path"]) as f:
+        dip_ids = [int(i) for i in json.load(f)]
+    lowlevel = torch_load_cpu(dip["recons_path"]).float().clamp(0, 1)[[dip_ids.index(i) for i in img_ids]].contiguous()
+    prediction = load_predictions(cfg.subject, lowlevel_dir, {"clip": run_dir})
+    shared = [int(i) for i in prediction["shared_img_ids"]]
+    tokens = prediction["pred_clip_tokens"][[shared.index(i) for i in img_ids]].float().contiguous()
+
+    combined = load_combined_model(cfg)
+    seed_everything(seed)
+    k = cfg.diffusion_ensemble_size
+    out_dir = f"{cfg.output_root}/figure_resamples/{os.path.basename(run_dir)}/seed{seed}"
+    os.makedirs(out_dir, exist_ok=True)
+    report = {}
+    for row, img_id in enumerate(img_ids):
+        candidates = _generate_safe(cfg, combined, [row] * k, tokens, lowlevel)
+        sample, best, scores = select_best_candidates(cfg, [row], candidates, lowlevel)
+        save = lambda x, name: Image.fromarray(x.permute(1, 2, 0).numpy()).save(f"{out_dir}/{name}.png")  # noqa: E731
+        save(sample[0], f"img{img_id:06d}")
+        for c, x in enumerate(candidates):
+            save(x, f"img{img_id:06d}_cand{c}")
+        report[img_id] = {"best": int(best[0]) if best is not None else 0}
+    with open(f"{out_dir}/report.json", "w") as f:
+        json.dump(report, f, indent=1)
+    volume.commit()
+    print(out_dir, report)
+    return report
+
+
+@gpu_function
 def decoder_loss_probe(overrides: dict):
     """One training batch through the decoder-aware loss: memory, step time, gradient sizes, and whether the frozen
     unCLIP's diffusion loss actually depends on the conditioning (true < predicted < shuffled tokens)."""

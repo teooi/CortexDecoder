@@ -1,5 +1,10 @@
-# old IEEE version of the paper
+# old IEEE and WACV versions of the paper
 papers/IEEE_paper/
+papers/wacv_paper/
+
+# raster images are kept locally, not in git (figure PDFs are still tracked)
+*.png
+*.PNG
 
 # pristine AAAI author kit (the paper lives in papers/AAAI_workshop_paper/)
 papers/AAAI_paper/
@@ -23,9 +28,15 @@ papers/AAAI_workshop_paper/Figures/unused/
 __pycache__/
 *.pyc
 .venv/
+.ipynb_checkpoints/
+
+# secrets (Modal / HF tokens)
+.env
 
 # archives / backups
 *.zip
+# macOS Finder duplicates, e.g. "DIP3 2.png"
+* [0-9].*
 
 # AAAI author-kit Word templates (paper is written in LaTeX)
 papers/**/Word/

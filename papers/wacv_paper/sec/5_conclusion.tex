@@ -1,5 +1,0 @@
-\section{Conclusion}
-\label{sec:conclusion}
-We introduce CortexDecoder, an fMRI-to-image reconstruction framework that uses 2D cortical flatmaps as neural representations for visual decoding. By converting cortical flatmaps into patch tokens, CortexDecoder enables the use of Vision Transformers while preserving the spatial structure of cortical responses. A pretrained CortexMAE encoder produces brain tokens, which are then mapped through two cross-attention branches: one for semantic features and one for low-level image reconstruction. These predictions are then passed to a fine-tuned SDXL-unCLIP image generation model, which takes the predicted low-level image as its initial image and generates the final reconstruction conditioned on the predicted semantic embedding.
-
-Our results show that cortical flatmaps preserve enough information to support brain decoding. CortexDecoder is strongest at low-level reconstruction, particularly on the PixCorr and SSIM metrics, across the two subjects we evaluated. Overall, flatmaps are a promising fMRI representation for brain decoding, as we have demonstrated for image reconstruction.

@@ -19,7 +19,7 @@ class NSDSubjectData:
     def __init__(self, cfg):
         self.cfg = cfg
         self.subject = cfg.subject
-        self.flatmap_dir = f"{cfg.data_dir}/flatmap_tokens_fp16"
+        self.flatmap_dir = f"{cfg.data_dir}/{cfg.brain_tokens}"
         self.clip_targets_dir = f"{cfg.data_dir}/clip_targets_cache"
 
         mat = loadmat(require_file(f"{cfg.data_dir}/nsd_expdesign.mat"))
