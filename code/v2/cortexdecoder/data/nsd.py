@@ -1,3 +1,4 @@
+"""NSD subject data: brain-token sessions, image-id train/val/test splits and CLIP targets."""
 import gc
 import json
 import os
@@ -10,7 +11,7 @@ from scipy.io import loadmat
 from tqdm.auto import tqdm
 
 from ..core.common import require_file, torch_load_cpu
-from ..core.config import CLIP_NUM_QUERIES, TRIALS_PER_SESSION
+from ..core.config import CLIP_DIM, CLIP_NUM_QUERIES, TRIALS_PER_SESSION
 
 
 class NSDSubjectData:
@@ -164,19 +165,15 @@ class NSDSubjectData:
     @property
     def clip_targets(self):
         if self._clip_targets is None:
-            if self.cfg.semantic_target == "siglip2_tokens":
-                path = f"{self.cfg.data_dir}/siglip2_targets_cache/{self.subject}_siglip2_targets.pt"
-            else:
-                path = f"{self.clip_targets_dir}/{self.subject}_clip_targets.pt"
+            path = f"{self.clip_targets_dir}/{self.subject}_clip_targets.pt"
             self._clip_targets = torch_load_cpu(require_file(path))
-            print(f"loaded {self.cfg.semantic_target} targets {self.subject}: {len(self._clip_targets)} images")
+            print(f"loaded CLIP targets {self.subject}: {len(self._clip_targets)} images")
         return self._clip_targets
 
     def clip_targets_for_ids(self, img_ids):
         targets = torch.stack([self.clip_targets[int(i)] for i in img_ids]).contiguous()
-        dim = self.cfg.semantic_dim
-        if tuple(targets.shape[1:]) != (CLIP_NUM_QUERIES, dim):
-            raise ValueError(f"expected semantic targets [B, {CLIP_NUM_QUERIES}, {dim}], got {tuple(targets.shape)}")
+        if tuple(targets.shape[1:]) != (CLIP_NUM_QUERIES, CLIP_DIM):
+            raise ValueError(f"expected CLIP targets [B, {CLIP_NUM_QUERIES}, {CLIP_DIM}], got {tuple(targets.shape)}")
         if not torch.isfinite(targets).all():
             bad = int((~torch.isfinite(targets)).sum().item())
             raise ValueError(f"CLIP target batch has {bad} non-finite values")

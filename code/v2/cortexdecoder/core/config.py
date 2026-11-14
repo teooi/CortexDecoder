@@ -1,4 +1,4 @@
-"""Run configuration. Defaults reproduce the v1 subject-1 production notebooks."""
+"""Run configuration. Defaults are the whole-cortex baseline; the README lists the overrides for the paper's final model."""
 import re
 import time
 from dataclasses import dataclass, fields, replace
@@ -19,23 +19,18 @@ SAMPLE_TOKENS_PER_LAYER = [512, 512, 128, 64, 16]
 # OpenCLIP ViT-bigG/14 internal image patch tokens.
 CLIP_DIM = 1664
 CLIP_NUM_QUERIES = 256
-# SigLIP 2 giant/16 @256 patch tokens (same 256 queries); see scripts/extract_siglip2_targets.py.
-SIGLIP2_DIM = 1536
 
 SHARED1000_EVAL_SIZE = 1000
 TRIALS_PER_SESSION = 750
+# Both strings are part of every run-directory name, so they stay fixed.
 SPLIT_POLICY = "shared1000_image_id_holdout"
 ARCH_MODE = "baseline"
 HEADS = ("vgg", "clip")
 
 # Ablation knobs -> short run-dir tag. A run whose knobs are all at their defaults gets no tag,
-# so baseline run dirs keep the v1 notebook names.
-ABLATION_TAGS = {"clip_loss": "loss", "clip_temperature": "T", "n_layers": "L", "n_heads": "H", "semantic_target": "sem",
-                 "decoder_loss_weight": "dec", "roi": "roi", "memory_pos_embed": "pos", "brain_tokens": "tok",
-                 "vgg_brain_tokens": "vtok", "query_self_attn": "qsa", "vgg_query_self_attn": "vqsa"}
-# Per-patch nsdgeneral coverage on the CortexMAE patch grid (scripts/roi_overlap.py); template space, so subject-independent.
-ROI_COVERAGE_FILE = "outputs/token_diagnostics/subj01_roi_overlap.json"
-CORTEXMAE_TEMPORAL = 4  # tokens are time-major: [4 time chunks x 364 patches]
+# so baseline run dirs keep their original names.
+ABLATION_TAGS = {"clip_loss": "loss", "clip_temperature": "T", "n_layers": "L", "n_heads": "H",
+                 "decoder_loss_weight": "dec", "brain_tokens": "tok", "vgg_brain_tokens": "vtok"}
 
 
 @dataclass(frozen=True)
@@ -55,41 +50,31 @@ class Config:
     n_heads: int = 8
     ffn_dim: int = 3072
     dropout: float = 0.10
-    query_self_attn: bool = True
 
     # Training.
     batch_size: int = 128
     epochs: int = 30
     lr: float = 5e-4
     weight_decay: float = 1e-2
-    warmup_epochs: int = 2  # v1 notebooks used 15, i.e. 15 of 25 CLIP epochs below the peak LR
-    plateau_patience: int = 5  # v1 used 2; with a short warmup that cut LR at the first noisy epoch
+    warmup_epochs: int = 2  # linear LR warmup
+    plateau_patience: int = 5  # a patience of 2 cut the LR at the first noisy epoch after warmup
     plateau_factor: float = 0.1
     grad_clip_norm: float = 1.0
     temperature: float = 0.07  # VGG InfoNCE
-    clip_loss: str = "mse"  # see training/losses.py:build_clip_loss, e.g. "mse+0.5*cosine"
-    clip_temperature: float = 0.07  # CLIP InfoNCE terms
+    clip_loss: str = "mse"  # see training/losses.py:build_clip_loss, e.g. "mse+0.1*infonce"
+    clip_temperature: float = 0.07  # CLIP InfoNCE / SoftCLIP terms
     best_metric: str = "val_loss"  # "val_loss" | "val_cos"; use val_cos to compare runs with different losses
     # Decoder-aware fine-tuning: clip_loss + decoder_loss_weight * frozen unCLIP diffusion loss (training/decoder_loss.py).
     decoder_loss_weight: float = 0.0
     decoder_loss_batch: int = 32  # samples per batch that get the (costly) diffusion term; the clip loss uses all
     decoder_t_max: int = 640  # highest timestep visited by img2img from start step 14 of 38
     init_checkpoint: str = ""  # bridge weights to start from (fine-tuning) when the run has no checkpoint yet
-    # Semantic-bridge ROI: "nsdgeneral" keeps patches with >= roi_min_coverage nsdgeneral coverage (time copies averaged,
-    # standardized with train-set statistics); "all" feeds every token.
-    roi: str = "all"
-    roi_min_coverage: float = 0.5
     # Brain-token set under data_dir: "flatmap_tokens_fp16" (whole cortex) or "flatmap_tokens_roi-nsdgeneral_fp16"
-    # (encoder-level ROI, scripts/generate_roi_tokens.py: only nsdgeneral patches visible to CortexMAE).
+    # (visual-cortex ROI, scripts/generate_roi_tokens.py: only nsdgeneral patches visible to CortexMAE).
     brain_tokens: str = "flatmap_tokens_fp16"
     # Final stage: brain-token set of the paired VGG run (see baseline()); "" pairs with the whole-cortex VGG bridge.
     vgg_brain_tokens: str = ""
-    vgg_query_self_attn: bool = True  # final stage: query_self_attn of the paired VGG run
-    # Learned positional embedding added to the bridge memory (one per brain token). Off by default: CortexMAE already
-    # adds positional embeddings at its input, so its output tokens carry their location.
-    memory_pos_embed: bool = False
     cache_sessions_in_ram: bool = False
-    run_vgg_batch_audit: bool = True
 
     # Shared-1000 prediction.
     predict_batch: int = 1
@@ -108,33 +93,17 @@ class Config:
     dip_batch_size: int = 36
     dip_min_batch_size: int = 1
     dip_layer_weights: tuple = (1.0, 1.0, 1.0, 1.0, 1.0)
-    dip_version: str = "v2"
-    dip_use_ground_truth_vgg: bool = False
-    # Feature-matching loss for DIP. The VGG bridge is trained with InfoNCE on L2-normalized tokens, so only each predicted
-    # token's direction is learned: "cosine" matches direction only; "rescale" sets each predicted feature vector's norm
-    # to the mean ground-truth norm at that layer/position (training images), then uses MSE; "mse" uses raw predictions.
-    dip_feature_loss: str = "mse"
     rerun_dip: bool = False
 
     # BrainIT/MindEye2 diffusion.
     diffusion_start_step: int = 14
     diffusion_num_steps: int = 38
-    diffusion_ensemble_size: int = 1  # best-of-N vs the DIP image moved PixCorr +0.012 and semantics ~0 (v1, N=998)
+    diffusion_ensemble_size: int = 1  # 1 = one sample per image (main results); N > 1 keeps the candidate closest to the DIP image
     diffusion_batch_size: int = 40  # total candidates per model call
     save_diffusion_candidates: bool = True
     diffusion_auto_split_on_oom: bool = True
     diffusion_empty_cache_every: int = 20
-    use_clip_tokens_for_diffusion: bool = True
-    use_lowlevel_init_for_diffusion: bool = True
-    run_brainit_sdxl_enhancement: bool = False
     rerun_diffusion: bool = False
-    diffusion_experiment_name: str = ""
-    oracle_clip: bool = False  # diagnostic: condition diffusion on ground-truth semantics instead of predictions
-    semantic_target: str = "image_tokens"  # "image_tokens" (bigG 256x1664, MindEye2 unCLIP) | "siglip2_tokens" (256x1536, SigLIP2 unCLIP) | "text_tokens" (SDXL 77x2048 + pooled)
-    siglip2_unclip_ckpt: str = "outputs/production_siglip2_unclip_siglip2_unclip_v4/siglip2_unclip_best.pt"
-    caption_index: int = 0  # which COCO caption to use for text targets
-    sdxl_guidance_scale: float = 5.0
-    sdxl_batch_size: int = 20  # candidates per SDXL call at 1024px
 
     # Final evaluation.
     eval_feature_batch_size: int = 32
@@ -173,33 +142,18 @@ class Config:
         return f"{self.output_root}/{name}" + (f"_{self.ablation_tag}" if self.ablation_tag else "")
 
     def baseline(self):
-        """Same run with ablation knobs reset: the VGG run (and its DIP images) a semantic ablation reuses.
+        """The VGG run (and its DIP images) this run pairs with: same run with ablation knobs reset.
 
-        Only `brain_tokens` and `query_self_attn` survive, set from `vgg_brain_tokens` / `vgg_query_self_attn`, so the
-        VGG side can be an encoder-level ROI or cross-only run too.
+        Only `brain_tokens` survives, set from `vgg_brain_tokens`, so the VGG side can be a visual-cortex ROI run too.
         """
         defaults = {f.name: f.default for f in fields(Config)}
         reset = {name: defaults[name] for name in ABLATION_TAGS}
         reset["brain_tokens"] = self.vgg_brain_tokens or defaults["brain_tokens"]
-        reset["query_self_attn"] = self.vgg_query_self_attn
         return replace(self, timestamp=self.vgg_timestamp or self.timestamp, vgg_timestamp="", **reset)
 
     def clip_source(self):
-        """Config whose run_dir('clip') holds this run's semantic bridge; the vgg_* knobs only concern the final stage."""
-        return replace(self, vgg_brain_tokens="", vgg_query_self_attn=True)
-
-    @property
-    def semantic_dim(self):
-        return SIGLIP2_DIM if self.semantic_target == "siglip2_tokens" else CLIP_DIM
-
-    @property
-    def dip_target_source(self):
-        return "gtvgg" if self.dip_use_ground_truth_vgg else "predvgg"
-
-    @property
-    def dip_output_tag(self):
-        tag = f"{self.dip_version}_gtvgg" if self.dip_use_ground_truth_vgg else self.dip_version
-        return tag if self.dip_feature_loss == "mse" else f"{tag}_{self.dip_feature_loss}"
+        """Config whose run_dir('clip') holds this run's semantic bridge; `vgg_brain_tokens` only concerns the final stage."""
+        return replace(self, vgg_brain_tokens="")
 
     def with_overrides(self, **overrides):
         return replace(self, **{k: v for k, v in overrides.items() if v is not None})

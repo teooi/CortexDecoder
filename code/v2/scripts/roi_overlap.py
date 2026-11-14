@@ -1,12 +1,14 @@
-"""Are the most repeat-reliable CortexMAE patches the nsdgeneral visual-cortex ROI?
+"""nsdgeneral (visual cortex) coverage of each CortexMAE patch. Defines the ROI that generate_roi_tokens.py uses.
 
     modal run code/v2/scripts/roi_overlap.py
 
 Projects NSD's fsaverage nsdgeneral labels to fsLR-32k (wb_command ADAP_BARY_AREA, as the betas were) and onto the
 CortexMAE 224x560 flatmap with cortex_mae's own resampler, then computes each of the 364 in-brain 16x16 patches'
 nsdgeneral coverage. CortexMAE keeps in-brain patches in row-major grid order (masking.trim_patch_mask without a mask
-ratio), so patch p is the p-th in-brain cell. Compares coverage with the reliability ranking from diagnose_tokens.py.
-Writes <data>/outputs/token_diagnostics/subj01_roi_overlap.{json,pdf,png}.
+ratio), so patch p is the p-th in-brain cell. Writes <data>/outputs/token_diagnostics/subj01_roi_overlap.json.
+
+If the patch-reliability ranking from the exploratory diagnose_tokens.py is on the volume, it also compares coverage
+with that ranking and writes subj01_roi_overlap.{pdf,png}.
 """
 import modal
 
@@ -64,41 +66,44 @@ def overlap():
                 cells.append((r, c, float(roi_img[sl][brain[sl]].mean())))
     assert len(cells) == 364, f"expected 364 in-brain patches, got {len(cells)}"
     coverage = np.array([c[2] for c in cells])
-
-    diag = torch.load(f"{out_dir}/subj01_token_diagnostics.pt")
-    rel = diag["reliability_eval_half"].numpy()  # held-out half; the ranking used the other half
-    ranked = diag["ranked_patches"].numpy()
     in_roi = coverage >= 0.5
-    result = {"n_patches": 364, "n_nsdgeneral_patches_cov50": int(in_roi.sum()),
-              "spearman_reliability_vs_coverage": float(spearmanr(rel, coverage).correlation)}
-    for k in (16, 32, 64, 128):
-        top = ranked[:k]
-        result[f"top{k}"] = {"mean_coverage": float(coverage[top].mean()),
-                             "frac_in_nsdgeneral_cov50": float(in_roi[top].mean())}
-    k = int(in_roi.sum())
-    top_k = set(ranked[:k].tolist())
-    roi_set = set(np.where(in_roi)[0].tolist())
-    result["topK_vs_nsdgeneral_jaccard_K=n_roi"] = len(top_k & roi_set) / len(top_k | roi_set)
-    result["mean_reliability_inside_vs_outside"] = [float(rel[in_roi].mean()), float(rel[~in_roi].mean())]
+    result = {"n_patches": 364, "n_nsdgeneral_patches_cov50": int(in_roi.sum())}
 
-    # Figure: reliability map and nsdgeneral coverage on the 14x35 patch grid, top-64 outlined.
-    plt.rcParams.update({"font.family": "serif", "font.size": 8, "pdf.fonttype": 42, "ps.fonttype": 42})
-    grids = {name: np.full((GRID_H, GRID_W), np.nan) for name in ("rel", "cov")}
-    for p, (r, c, cov) in enumerate(cells):
-        grids["rel"][r, c], grids["cov"][r, c] = rel[p], cov
-    fig, axes = plt.subplots(1, 2, figsize=(7.0, 1.9), constrained_layout=True)
-    for ax, key, title, cmap in [(axes[0], "rel", "Patch repeat reliability", "magma"),
-                                 (axes[1], "cov", "nsdgeneral coverage", "Blues")]:
-        im = ax.imshow(grids[key], cmap=cmap, interpolation="nearest")
-        for p in ranked[:64]:
-            r, c, _ = cells[p]
-            ax.add_patch(plt.Rectangle((c - 0.5, r - 0.5), 1, 1, fill=False, edgecolor="#2CA02C", linewidth=0.8))
-        ax.set_title(title)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        fig.colorbar(im, ax=ax, shrink=0.8)
-    fig.savefig(f"{out_dir}/subj01_roi_overlap.pdf")
-    fig.savefig(f"{out_dir}/subj01_roi_overlap.png", dpi=600)
+    diag_path = f"{out_dir}/subj01_token_diagnostics.pt"
+    if os.path.exists(diag_path):
+        diag = torch.load(diag_path)
+        rel = diag["reliability_eval_half"].numpy()  # held-out half; the ranking used the other half
+        ranked = diag["ranked_patches"].numpy()
+        result["spearman_reliability_vs_coverage"] = float(spearmanr(rel, coverage).correlation)
+        for k in (16, 32, 64, 128):
+            top = ranked[:k]
+            result[f"top{k}"] = {"mean_coverage": float(coverage[top].mean()),
+                                 "frac_in_nsdgeneral_cov50": float(in_roi[top].mean())}
+        k = int(in_roi.sum())
+        top_k = set(ranked[:k].tolist())
+        roi_set = set(np.where(in_roi)[0].tolist())
+        result["topK_vs_nsdgeneral_jaccard_K=n_roi"] = len(top_k & roi_set) / len(top_k | roi_set)
+        result["mean_reliability_inside_vs_outside"] = [float(rel[in_roi].mean()), float(rel[~in_roi].mean())]
+
+        # Figure: reliability map and nsdgeneral coverage on the 14x35 patch grid, top-64 outlined.
+        plt.rcParams.update({"font.family": "serif", "font.size": 8, "pdf.fonttype": 42, "ps.fonttype": 42})
+        grids = {name: np.full((GRID_H, GRID_W), np.nan) for name in ("rel", "cov")}
+        for p, (r, c, cov) in enumerate(cells):
+            grids["rel"][r, c], grids["cov"][r, c] = rel[p], cov
+        fig, axes = plt.subplots(1, 2, figsize=(7.0, 1.9), constrained_layout=True)
+        for ax, key, title, cmap in [(axes[0], "rel", "Patch repeat reliability", "magma"),
+                                     (axes[1], "cov", "nsdgeneral coverage", "Blues")]:
+            im = ax.imshow(grids[key], cmap=cmap, interpolation="nearest")
+            for p in ranked[:64]:
+                r, c, _ = cells[p]
+                ax.add_patch(plt.Rectangle((c - 0.5, r - 0.5), 1, 1, fill=False, edgecolor="#2CA02C", linewidth=0.8))
+            ax.set_title(title)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            fig.colorbar(im, ax=ax, shrink=0.8)
+        fig.savefig(f"{out_dir}/subj01_roi_overlap.pdf")
+        fig.savefig(f"{out_dir}/subj01_roi_overlap.png", dpi=600)
+    os.makedirs(out_dir, exist_ok=True)
     with open(f"{out_dir}/subj01_roi_overlap.json", "w") as f:
         json.dump({**result, "coverage": coverage.tolist(), "cells_row_col": [(r, c) for r, c, _ in cells]}, f, indent=2)
     volume.commit()

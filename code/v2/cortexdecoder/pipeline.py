@@ -1,4 +1,13 @@
-"""The three v1 notebooks as stage functions: train VGG, train CLIP, final diffusion + eval."""
+"""The three pipeline stages. Each one resumes from whatever its run directory already contains.
+
+    vgg    train the low-level bridge (training/trainer.py), predict VGG features for the shared-1000 test images,
+           and invert them into low-level images with a Deep Image Prior (reconstruction/dip.py)
+    clip   train the semantic bridge, predict CLIP tokens for the test images, and score them (evaluation/metrics.py)
+    final  generate each image with SDXL-unCLIP from the low-level image and the predicted CLIP tokens
+           (reconstruction/diffusion.py), then compute the paper's metric table (evaluation/metrics.py)
+
+Brain tokens come from data/nsd.py, the bridge is models/bridge.py, and run settings are in core/config.py.
+"""
 import os
 
 from .core.common import DEVICE, noop, seed_everything
@@ -24,7 +33,7 @@ def _manifest_entry(out_dir, subject, heads):
 
 
 def run_vgg_stage(cfg, commit=noop):
-    """production-vgg-train: train VGG head, predict shared-1000 VGG tokens, DIP preview on a subset."""
+    """Train the VGG bridge, predict shared-1000 VGG tokens, and invert them with DIP."""
     from .reconstruction.dip import eval_dip, run_dip_inversion
     from .training.trainer import HeadTrainer
 
@@ -38,17 +47,19 @@ def run_vgg_stage(cfg, commit=noop):
     commit()
 
     prediction = load_predictions(cfg.subject, out_dir, {"vgg": out_dir})
-    dip_manifest = run_dip_inversion(cfg, tokenizer, stimuli, prediction, out_dir, on_batch_end=commit, data=data)
+    dip_manifest = run_dip_inversion(cfg, tokenizer, prediction, out_dir, on_batch_end=commit)
     eval_dip(cfg, stimuli, dip_manifest, out_dir)
     commit()
     return out_dir
 
 
 def run_clip_stage(cfg, commit=noop):
-    """production-clip-train: train CLIP head, predict shared-1000 CLIP tokens, embedding-level eval."""
+    """Train the CLIP bridge, predict shared-1000 CLIP tokens, and score them against the true tokens."""
     from .evaluation.metrics import clip_embedding_eval
     from .training.trainer import HeadTrainer
 
+    # Drop the final-stage-only VGG settings, so this run lands in the directory the final stage looks in.
+    cfg = cfg.clip_source()
     data, out_dir = _setup(cfg, "clip")
     stimuli = StimulusImages(cfg.data_dir) if cfg.decoder_loss_weight > 0 else None
     HeadTrainer(cfg, data, "clip", out_dir, stimuli=stimuli).fit(on_epoch_end=commit)
@@ -61,11 +72,11 @@ def run_clip_stage(cfg, commit=noop):
 
 
 def run_final_stage(cfg, commit=noop):
-    """production-final-diffusion: best weights -> shared-1000 tokens -> DIP -> CLIP-conditioned diffusion -> eval.
+    """Best weights -> shared-1000 tokens -> DIP -> CLIP-conditioned diffusion -> metrics.
 
     The low-level side (VGG weights, VGG predictions, DIP images) always comes from `cfg.baseline()`, so a
     semantic-branch ablation reuses the baseline's DIP images and only re-runs CLIP prediction, diffusion and eval.
-    For a baseline config both sides share one output dir, as in v1.
+    For a baseline config both sides share one output dir.
     """
     from .reconstruction.diffusion import diffuse, load_combined_model
     from .reconstruction.dip import eval_dip, run_dip_inversion
@@ -83,7 +94,7 @@ def run_final_stage(cfg, commit=noop):
     print("source CLIP run:", cfg.clip_source().run_dir("clip"))
     print("low-level (VGG preds + DIP) dir:", lowlevel_dir)
 
-    # A semantic bridge on another brain-token set (e.g. encoder-level ROI) must not reuse the baseline's cached
+    # A semantic bridge on another brain-token set (e.g. the visual-cortex ROI) must not reuse the baseline's cached
     # whole-cortex shared-1000 tokens; the VGG side always reads the baseline tokens.
     same_tokens = cfg.brain_tokens == base.brain_tokens
     clip_shared_dir = lowlevel_dir if same_tokens else out_dir
@@ -100,33 +111,17 @@ def run_final_stage(cfg, commit=noop):
     commit()
 
     prediction = load_predictions(cfg.subject, lowlevel_dir, {"vgg": lowlevel_dir, "clip": out_dir})
-    if cfg.oracle_clip and cfg.semantic_target != "text_tokens":
-        print(f"ORACLE: conditioning diffusion on ground-truth {cfg.semantic_target}")
-        prediction["pred_clip_tokens"] = data.clip_targets_for_ids(prediction["shared_img_ids"]).half()
     stimuli = StimulusImages(cfg.data_dir)
     tokenizer = BrainITVGGTokenizer().to(DEVICE).eval()
-    dip_manifest = run_dip_inversion(base, tokenizer, stimuli, prediction, lowlevel_dir, on_batch_end=commit, data=data)
+    dip_manifest = run_dip_inversion(base, tokenizer, prediction, lowlevel_dir, on_batch_end=commit)
     eval_dip(base, stimuli, dip_manifest, lowlevel_dir)
     del tokenizer
     commit()
 
-    if cfg.semantic_target == "text_tokens":
-        if not cfg.oracle_clip:
-            raise NotImplementedError("text-token bridge not built yet; run text_tokens with --oracle-clip")
-        from .reconstruction.sdxl_text import diffuse_text, load_sdxl_img2img
-        print("ORACLE: conditioning SDXL on ground-truth caption embeddings")
-        pipe = load_sdxl_img2img(cfg)
-        diffusion_manifest = diffuse_text(cfg, pipe, data, dip_manifest, out_dir, on_batch_end=commit)
-        del pipe
-    else:
-        if cfg.semantic_target == "siglip2_tokens":
-            from .reconstruction.siglip2_unclip import SigLIP2UnCLIP
-            combined = SigLIP2UnCLIP(cfg)
-        else:
-            combined = load_combined_model(cfg)
-        diffusion_manifest = diffuse(cfg, combined, data, dip_manifest, prediction, out_dir, on_batch_end=commit)
-        combined.to("cpu")
-        del combined
+    combined = load_combined_model(cfg)
+    diffusion_manifest = diffuse(cfg, combined, data, dip_manifest, prediction, out_dir, on_batch_end=commit)
+    combined.to("cpu")
+    del combined
     commit()
 
     evaluate_final(cfg, data, stimuli, diffusion_manifest, prediction, out_dir)

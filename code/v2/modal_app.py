@@ -1,13 +1,17 @@
-"""CortexDecoder v2 on Modal (subject 1).
+"""CortexDecoder on Modal (subject 1).
 
-    modal run code/v2/modal_app.py                          # all stages, default timestamp (reuses existing runs)
+Deploy once, then start runs with scripts/spawn_runs.py, which keep running after the laptop closes:
+
+    modal deploy code/v2/modal_app.py
+    python3 code/v2/scripts/spawn_runs.py vgg '{"timestamp": "<run-id>"}'
+
+`modal run` also works but stays attached to this machine:
+
     modal run code/v2/modal_app.py --stage vgg --timestamp new
-    modal run code/v2/modal_app.py --stage final --final-eval-images 48
-    modal run --detach code/v2/modal_app.py --stage all --timestamp new
+    modal run code/v2/modal_app.py::smoke_test            # CPU-only checks on real data, no GPU
 
-Stages mirror the v1 notebooks: `vgg` (production-vgg-train), `clip` (production-clip-train),
-`final` (production-final-diffusion). `all` trains VGG and CLIP in parallel, then runs `final`.
-Every stage resumes from what is already on the volume for the given timestamp.
+Stages are `vgg`, `clip` and `final` (see cortexdecoder/pipeline.py). `all` trains VGG and CLIP in parallel, then
+runs `final`. Every stage resumes from what is already on the volume for the given timestamp.
 """
 import time
 from pathlib import Path
@@ -129,172 +133,22 @@ def train_clip_then_final(overrides: dict):
 
 
 @gpu_function
-def dip_probe(overrides: dict):
-    """DIP-only low-level eval (no diffusion) of the final config's paired VGG predictions, e.g. to compare
-    dip_feature_loss variants on a final_eval_images subset. Writes next to the VGG predictions in the low-level dir."""
-    import os
-
-    from cortexdecoder.core.common import DEVICE, seed_everything
-    from cortexdecoder.core.config import final_config
-    from cortexdecoder.data.nsd import NSDSubjectData
-    from cortexdecoder.data.stimuli import StimulusImages
-    from cortexdecoder.models.vgg_tokenizer import BrainITVGGTokenizer
-    from cortexdecoder.evaluation.metrics import evaluate_lowlevel
-    from cortexdecoder.reconstruction.dip import run_dip_inversion
-    from cortexdecoder.reconstruction.predict import load_predictions, predict_shared1000
-
-    volume.reload()
-    base = final_config(**overrides).baseline()
-    seed_everything(base.seed)
-    lowlevel_dir = base.run_dir("final_diffusion")
-    os.makedirs(lowlevel_dir, exist_ok=True)
-    commit = _throttled_commit()
-    data = NSDSubjectData(base)
-    predict_shared1000(base, data, "vgg", f"{base.run_dir('vgg')}/vgg_best.pt", lowlevel_dir)  # no-op if already predicted
-    prediction = load_predictions(base.subject, lowlevel_dir, {"vgg": lowlevel_dir})
-    stimuli = StimulusImages(base.data_dir)
-    tokenizer = BrainITVGGTokenizer().to(DEVICE).eval()
-    manifest = run_dip_inversion(base, tokenizer, stimuli, prediction, lowlevel_dir, on_batch_end=commit, data=data)
-    del tokenizer
-    row = evaluate_lowlevel(base, stimuli, manifest, lowlevel_dir)
-    commit(force=True)
-    return row
-
-
-@gpu_function
 def train_vgg_then_final(overrides: dict):
     """Train the VGG run the final config pairs with (vgg_timestamp + vgg_brain_tokens), then final diffusion + eval."""
     import os
 
-    from cortexdecoder.core.config import final_config
-
-    base = final_config(**overrides).baseline()
-    train_vgg.local(_vgg_overrides(base))
+    train_vgg.local(_vgg_overrides(overrides))
     os.chdir("/")
     return final_diffusion.local(overrides)
 
 
-def _vgg_overrides(base):
-    return {"timestamp": base.timestamp, "brain_tokens": base.brain_tokens, "query_self_attn": base.query_self_attn,
+def _vgg_overrides(overrides):
+    """Overrides for the VGG run that a final config with these overrides pairs with (Config.baseline)."""
+    from cortexdecoder.core.config import final_config
+
+    base = final_config(**overrides).baseline()
+    return {"timestamp": base.timestamp, "brain_tokens": base.brain_tokens,
             "warmup_epochs": base.warmup_epochs, "plateau_patience": base.plateau_patience}
-
-
-@gpu_function
-def train_vgg_then_dip(overrides: dict):
-    """Train the VGG run the final config pairs with, then the DIP-only full-metric eval (dip_probe) on its predictions."""
-    import os
-
-    from cortexdecoder.core.config import final_config
-
-    train_vgg.local(_vgg_overrides(final_config(**overrides).baseline()))
-    os.chdir("/")
-    return dip_probe.local(overrides)
-
-
-@gpu_function
-def resample_images(overrides: dict, img_ids: list, seed: int):
-    """Fresh best-of-N diffusion for a few shared-1000 images (paper figures) with a new seed.
-
-    Reuses the final run's DIP images and predicted tokens, so only the diffusion noise changes. Writes every candidate
-    and the selected sample as PNGs to outputs/figure_resamples/<final run>/seed<seed>/ on the volume.
-    """
-    import json
-    import os
-
-    from PIL import Image
-
-    from cortexdecoder.core.common import seed_everything, torch_load_cpu
-    from cortexdecoder.core.config import final_config
-    from cortexdecoder.reconstruction.diffusion import _generate_safe, load_combined_model, select_best_candidates
-    from cortexdecoder.reconstruction.dip import dip_paths
-    from cortexdecoder.reconstruction.predict import load_predictions
-
-    volume.reload()
-    cfg = final_config(**overrides)
-    base = cfg.baseline()
-    lowlevel_dir, run_dir = base.run_dir("final_diffusion"), cfg.run_dir("final_diffusion")
-    dip = dip_paths(base, lowlevel_dir)
-    with open(dip["img_ids_path"]) as f:
-        dip_ids = [int(i) for i in json.load(f)]
-    lowlevel = torch_load_cpu(dip["recons_path"]).float().clamp(0, 1)[[dip_ids.index(i) for i in img_ids]].contiguous()
-    prediction = load_predictions(cfg.subject, lowlevel_dir, {"clip": run_dir})
-    shared = [int(i) for i in prediction["shared_img_ids"]]
-    tokens = prediction["pred_clip_tokens"][[shared.index(i) for i in img_ids]].float().contiguous()
-
-    combined = load_combined_model(cfg)
-    seed_everything(seed)
-    k = cfg.diffusion_ensemble_size
-    out_dir = f"{cfg.output_root}/figure_resamples/{os.path.basename(run_dir)}/seed{seed}"
-    os.makedirs(out_dir, exist_ok=True)
-    report = {}
-    for row, img_id in enumerate(img_ids):
-        candidates = _generate_safe(cfg, combined, [row] * k, tokens, lowlevel)
-        sample, best, scores = select_best_candidates(cfg, [row], candidates, lowlevel)
-        save = lambda x, name: Image.fromarray(x.permute(1, 2, 0).numpy()).save(f"{out_dir}/{name}.png")  # noqa: E731
-        save(sample[0], f"img{img_id:06d}")
-        for c, x in enumerate(candidates):
-            save(x, f"img{img_id:06d}_cand{c}")
-        report[img_id] = {"best": int(best[0]) if best is not None else 0}
-    with open(f"{out_dir}/report.json", "w") as f:
-        json.dump(report, f, indent=1)
-    volume.commit()
-    print(out_dir, report)
-    return report
-
-
-@gpu_function
-def decoder_loss_probe(overrides: dict):
-    """One training batch through the decoder-aware loss: memory, step time, gradient sizes, and whether the frozen
-    unCLIP's diffusion loss actually depends on the conditioning (true < predicted < shuffled tokens)."""
-    import torch
-
-    from cortexdecoder.core.common import DEVICE
-    from cortexdecoder.core.config import clip_config
-    from cortexdecoder.data.nsd import NSDSubjectData
-    from cortexdecoder.data.stimuli import StimulusImages
-    from cortexdecoder.training.trainer import HeadTrainer
-
-    cfg = clip_config(**overrides)
-    data = NSDSubjectData(cfg)
-    trainer = HeadTrainer(cfg, data, "clip", "/tmp/probe", stimuli=StimulusImages(cfg.data_dir))
-    trainer._resume()  # loads init_checkpoint
-    volume.commit()  # persist the VAE latent cache
-    brain, ids = data.load_session(data.sessions[0], split="train")
-    brain, ids = brain[:cfg.batch_size].to(DEVICE).float(), ids[:cfg.batch_size]
-    k = cfg.decoder_loss_batch
-    target = data.clip_targets_for_ids(ids).to(DEVICE).float()
-    loss_fn, model = trainer.decoder_loss, trainer.model
-
-    def decoder_loss(tokens, seed=0, ids_=ids):
-        gen = torch.Generator(device=DEVICE).manual_seed(seed)
-        with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
-            return float(loss_fn(tokens[:k], ids_[:k], generator=gen))
-
-    with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
-        pred = model(brain)
-    seeds = range(8)  # average over noise draws: the per-batch diffusion loss is noisy
-    report = {name: sum(decoder_loss(tok, s) for s in seeds) / len(seeds) for name, tok in [
-        ("true_tokens", target), ("predicted_tokens", pred), ("shuffled_true_tokens", target.roll(1, dims=0)),
-        ("zero_tokens", torch.zeros_like(target))]}
-
-    grads = {}
-    for name in ["clip", "decoder"]:
-        model.zero_grad(set_to_none=True)
-        torch.cuda.reset_peak_memory_stats()
-        torch.cuda.synchronize()
-        t0 = time.monotonic()
-        with torch.autocast("cuda", dtype=torch.bfloat16):
-            out = model(brain)
-            loss = trainer.clip_loss_fn(out, target)[0] if name == "clip" else loss_fn(out[:k], ids[:k])
-        loss.backward()
-        torch.cuda.synchronize()
-        grads[name] = {"loss": float(loss), "seconds": time.monotonic() - t0,
-                       "grad_norm": float(torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"))),
-                       "peak_mem_gb": torch.cuda.max_memory_allocated() / 1e9}
-    report["grads"] = grads
-    report["lambda_for_equal_grad_norm"] = grads["clip"]["grad_norm"] / max(grads["decoder"]["grad_norm"], 1e-12)
-    print(report)
-    return report
 
 
 @app.function(volumes={DATA_DIR: volume}, timeout=30 * 60, memory=32768)
@@ -360,7 +214,7 @@ def _check_semantic_losses(data, brain, ids):
     from cortexdecoder.training.trainer import architecture_name, assert_checkpoint_compatible
 
     target = data.clip_targets_for_ids(ids).float()
-    for name in [*CLIP_LOSSES, "mse+0.5*cosine"]:
+    for name in [*CLIP_LOSSES, "mse+0.1*infonce"]:
         cfg = clip_config(clip_loss=name, n_layers=1)
         torch.manual_seed(0)
         model = build_bridge(cfg, data, "clip", "cpu")
@@ -383,15 +237,15 @@ def _check_semantic_losses(data, brain, ids):
     except ValueError:
         pass
 
-    base, abl = clip_config(), clip_config(clip_loss="mse+0.5*cosine", timestamp="x", vgg_timestamp="20260907_013858")
+    base, abl = clip_config(), clip_config(clip_loss="mse+0.1*infonce", timestamp="x", vgg_timestamp="20260907_013858")
     assert base.ablation_tag == "" and base.run_dir("clip").endswith("_20260907_013858"), base.run_dir("clip")
-    assert abl.run_dir("clip").endswith("_x_loss-mse_0.5_cosine"), abl.run_dir("clip")
+    assert abl.run_dir("clip").endswith("_x_loss-mse_0.1_infonce"), abl.run_dir("clip")
     assert abl.baseline().run_dir("vgg") == base.run_dir("vgg"), abl.baseline().run_dir("vgg")
-    v1_ckpt = {"split_policy": "shared1000_image_id_holdout", "val_frac": 0.05, "domain": "clip",
-               "architecture": architecture_name(base, "clip"), "n_layers": 4}
-    assert_checkpoint_compatible(v1_ckpt, "v1", base, "clip")
+    old_ckpt = {"split_policy": "shared1000_image_id_holdout", "val_frac": 0.05, "domain": "clip",
+                "architecture": architecture_name(base, "clip"), "n_layers": 4}  # predates the loss keys
+    assert_checkpoint_compatible(old_ckpt, "old", base, "clip")
     try:
-        assert_checkpoint_compatible(v1_ckpt, "v1", abl, "clip")
+        assert_checkpoint_compatible(old_ckpt, "old", abl, "clip")
         raise AssertionError("resumed an MSE checkpoint under a different clip_loss")
     except ValueError:
         pass
@@ -410,9 +264,6 @@ def _check_semantic_losses(data, brain, ids):
         print(f"{name}: two_way={row['token_two_way']:.3f} retrieval={row['token_retrieval_img']:.3f}")
         assert (row["token_two_way"] > 0.99) if name == "exact" else (0.3 < row["token_two_way"] < 0.7), row
     print("clip embedding proxies ok")
-
-
-ABLATION_KEYS = ("clip_loss", "clip_temperature", "n_layers", "n_heads")
 
 
 def _parse_extra(extra):
@@ -442,16 +293,14 @@ def main(
     clip_temperature: float = 0.0,
     n_layers: int = 0,
     n_heads: int = 0,
-    oracle_clip: bool = False,
-    semantic_target: str = "",
     extra: str = "",
 ):
 
-    """--timestamp new starts fresh runs; 0 / "" keep each stage's notebook default.
+    """--timestamp new starts fresh runs; 0 / "" keep each stage's default.
 
     Semantic-loss ablation against an existing VGG run:
-        modal run code/v2/modal_app.py --stage clip  --timestamp new --clip-loss "mse+0.5*cosine"
-        modal run code/v2/modal_app.py --stage final --timestamp <that ts> --clip-loss "mse+0.5*cosine" --vgg-timestamp 20260907_013858
+        modal run code/v2/modal_app.py --stage clip  --timestamp new --clip-loss "mse+0.1*infonce"
+        modal run code/v2/modal_app.py --stage final --timestamp <that ts> --clip-loss "mse+0.1*infonce" --vgg-timestamp 20260907_013858
     """
     if timestamp == "new":
         timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -459,7 +308,6 @@ def main(
     for key, value in [
         ("vgg_timestamp", vgg_timestamp), ("epochs", epochs), ("final_eval_images", final_eval_images),
         ("clip_loss", clip_loss), ("clip_temperature", clip_temperature), ("n_layers", n_layers), ("n_heads", n_heads),
-        ("oracle_clip", oracle_clip), ("semantic_target", semantic_target),
     ]:
         if value:
             overrides[key] = value
@@ -473,8 +321,8 @@ def main(
     elif stage == "final":
         print(final_diffusion.remote(overrides))
     elif stage == "all":
-        # The final stage always pairs with the baseline VGG run, so ablation knobs only go to CLIP.
-        vgg_call = train_vgg.spawn({k: v for k, v in overrides.items() if k not in ABLATION_KEYS})
+        # The final stage pairs with the baseline VGG run (Config.baseline), so ablation knobs only go to CLIP.
+        vgg_call = train_vgg.spawn(_vgg_overrides(overrides))
         clip_call = train_clip.spawn(overrides)
         print(vgg_call.get())
         print(clip_call.get())

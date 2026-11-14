@@ -21,7 +21,6 @@ app = modal.App("cortexdecoder-baseline-recons", image=image)
 @app.function(volumes={DATA_DIR: volume}, cpu=4, memory=32768, timeout=60 * 60)
 def fetch(ids: list[int]):
     import io
-    import re
     import zipfile
 
     import h5py

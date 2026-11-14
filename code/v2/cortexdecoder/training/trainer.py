@@ -1,6 +1,6 @@
+"""Bridge training loop with resumable checkpoints, one head (VGG or CLIP) at a time."""
 import gc
 import json
-import math
 import os
 import random
 import time
@@ -40,9 +40,9 @@ def assert_checkpoint_compatible(ckpt, path, cfg, head):
         raise ValueError(f"refusing to load checkpoint with architecture={ckpt.get('architecture')!r}: {path}")
     if ckpt.get("domain") != head:
         raise ValueError(f"checkpoint domain={ckpt.get('domain')!r} does not match head={head!r}: {path}")
-    # v1 checkpoints predate these keys; they were all trained with the defaults.
-    defaults = {"n_layers": 4, "n_heads": 8, "clip_loss": "mse", "clip_temperature": 0.07, "semantic_target": "image_tokens"}
-    keys = ["n_layers", "n_heads"] + (["clip_loss", "clip_temperature", "semantic_target"] if head == "clip" else [])
+    # The earliest checkpoints predate these keys; they were all trained with the defaults.
+    defaults = {"n_layers": 4, "n_heads": 8, "clip_loss": "mse", "clip_temperature": 0.07}
+    keys = ["n_layers", "n_heads"] + (["clip_loss", "clip_temperature"] if head == "clip" else [])
     for key in keys:
         if ckpt.get(key, defaults[key]) != getattr(cfg, key):
             raise ValueError(f"checkpoint {key}={ckpt.get(key, defaults[key])!r} does not match config {getattr(cfg, key)!r}: {path}")
@@ -67,8 +67,7 @@ def checkpoint_payload(cfg, data, head, model, opt, scheduler, epoch, best_val):
         "initialization": "finetune" if cfg.init_checkpoint else "scratch",
         "decoder_loss_weight": cfg.decoder_loss_weight,
         "decoder_t_max": cfg.decoder_t_max,
-        "roi": cfg.roi,
-        "roi_min_coverage": cfg.roi_min_coverage,
+        "brain_tokens": cfg.brain_tokens,
         "architecture": architecture_name(cfg, head),
         "subjects": [cfg.subject],
         "num_flatmap_patches": data.num_patches,
@@ -78,7 +77,6 @@ def checkpoint_payload(cfg, data, head, model, opt, scheduler, epoch, best_val):
         "n_heads": cfg.n_heads,
         "clip_loss": cfg.clip_loss,
         "clip_temperature": cfg.clip_temperature,
-        "semantic_target": cfg.semantic_target,
         "train_epochs": int(cfg.epochs),
         "train_lr": cfg.lr,
         "split_policy": SPLIT_POLICY,
@@ -198,31 +196,6 @@ class HeadTrainer:
             raise RuntimeError(f"no valid batches for {self.head} epoch; bad sessions={sorted(self.data.bad_sessions)}")
         return {k: v / n_batches for k, v in totals.items()}
 
-    def audit_vgg_batch(self):
-        """Gradient sanity check on one training batch before VGG training starts."""
-        for sess in self.data.sessions:
-            loaded = self.data.load_session(sess, split="train")
-            if loaded is not None and loaded[0].shape[0] >= 2:
-                break
-        else:
-            raise RuntimeError("no usable debug batch for split='train'")
-        n = min(self.cfg.batch_size, 64, loaded[0].shape[0])
-        brain_batch = loaded[0][:n].to(DEVICE, non_blocking=True).float()
-        id_batch = loaded[1][:n]
-        self.opt.zero_grad(set_to_none=True)
-        pred, target, loss, _ = self.batch_forward(brain_batch, id_batch, train=True)
-        loss.backward()
-        grads = [p.grad.detach().float().square().sum() for p in self.model.parameters() if p.grad is not None]
-        grad_norm = math.sqrt(float(sum(grads).cpu())) if grads else 0.0
-        self.opt.zero_grad(set_to_none=True)
-        metrics = feature_metrics(pred.detach(), target.detach())
-        print(
-            f"VGG batch audit sess={sess} batch={n} unique_ids={len(set(id_batch.tolist()))} "
-            f"loss={float(loss.detach().cpu()):.4f} chance_log_batch={math.log(max(n, 2)):.4f} cos={metrics['cos']:.4f} "
-            f"pred_std={float(pred.detach().float().std().cpu()):.4f} target_std={float(target.detach().float().std().cpu()):.4f} "
-            f"grad_norm={grad_norm:.4e} grad_tensors={len(grads)}"
-        )
-
     def _resume(self):
         history, best_val, start_epoch = [], float("inf"), 1
         if os.path.exists(self.paths["history"]):
@@ -245,9 +218,6 @@ class HeadTrainer:
             print(f"fine-tuning {self.head} from {self.cfg.init_checkpoint} (its epoch {ckpt['epoch']})")
         else:
             print(f"starting {self.head} training from fresh random initialization")
-            if getattr(self.model, "roi_patches", None) is not None:
-                from ..models.bridge import fit_roi_stats
-                fit_roi_stats(self.model, self.data, DEVICE)
         return history, best_val, start_epoch
 
     def _save(self, epoch, best_val, history, is_best):
@@ -263,8 +233,6 @@ class HeadTrainer:
     def fit(self, on_epoch_end=noop):
         cfg = self.cfg
         history, best_val, start_epoch = self._resume()
-        if self.head == "vgg" and cfg.run_vgg_batch_audit:
-            self.audit_vgg_batch()
         if start_epoch > cfg.epochs:
             print(f"{self.head} training already complete for epochs={cfg.epochs}; loaded {len(history)} rows")
             return history

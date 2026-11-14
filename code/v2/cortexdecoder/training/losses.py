@@ -1,3 +1,4 @@
+"""Training losses: per-layer InfoNCE for the VGG bridge, MSE (optionally plus a contrastive term) for the CLIP bridge."""
 import torch
 import torch.nn.functional as F
 
@@ -69,19 +70,9 @@ def clip_mse(pred, target, cfg):
     return F.mse_loss(pred.float(), target)
 
 
-def clip_cosine(pred, target, cfg):
-    """1 - per-token cosine similarity."""
-    return 1.0 - F.cosine_similarity(pred.float(), target, dim=-1).mean()
-
-
 def clip_infonce(pred, target, cfg):
     """Symmetric InfoNCE across the batch on mean-pooled tokens."""
     return info_nce_by_position(pred.float().mean(1, keepdim=True), target.mean(1, keepdim=True), cfg.clip_temperature)
-
-
-def clip_token_infonce(pred, target, cfg):
-    """Symmetric InfoNCE across the batch at every token position (same form as the VGG branch)."""
-    return info_nce_by_position(pred, target, cfg.clip_temperature)
 
 
 def clip_softclip(pred, target, cfg):
@@ -98,15 +89,13 @@ def clip_softclip(pred, target, cfg):
 
 CLIP_LOSSES = {
     "mse": clip_mse,
-    "cosine": clip_cosine,
     "infonce": clip_infonce,
-    "token_infonce": clip_token_infonce,
     "softclip": clip_softclip,
 }
 
 
 def build_clip_loss(cfg):
-    """Parse Config.clip_loss, a weighted sum of registry terms, e.g. "mse", "mse+0.5*cosine", "cosine+0.1*infonce"."""
+    """Parse Config.clip_loss, a weighted sum of registry terms, e.g. "mse", "mse+0.1*infonce", "mse+0.3*softclip"."""
     terms = []
     for part in cfg.clip_loss.replace(" ", "").split("+"):
         weight, _, name = part.rpartition("*")

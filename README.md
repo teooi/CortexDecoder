@@ -1,14 +1,21 @@
-# CortexDecoder: fMRI-to-Image Reconstruction from Cortical Flatmaps
+<h1 align="center">CortexDecoder: fMRI-to-Image Reconstruction from Cortical Flatmaps</h1>
+
+<p align="center">
+  <a href="https://www.biorxiv.org/content/10.64898/2026.10.09.757766v1"><img src="https://img.shields.io/badge/Paper-bioRxiv-b31b1b.svg" height="22px"></a>
+  <a href="https://huggingface.co/teooi/cortexdecoder"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/model-on-hf-md-dark.svg" height="22px"></a>
+  <a href="https://huggingface.co/datasets/teooi/cortexdecoder-nsd-flatmaps"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/dataset-on-hf-md-dark.svg" height="22px"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" height="22px"></a>
+</p>
 
 Reconstructs viewed images from fMRI using cortical flatmaps. A frozen CortexMAE encoder turns visual-cortex flatmap patches into brain tokens, two cross-attention bridges predict VGG (low-level) and OpenCLIP bigG (semantic) features, and a frozen SDXL-unCLIP model generates the image from a Deep Image Prior init. Only the bridges are trained (83M parameters, about 3 H100-hours).
 
-**Paper:** [bioRxiv preprint](https://www.biorxiv.org/content/10.64898/2026.10.09.757766v1)
-
-![CortexDecoder reconstructions](papers/IEEE_paper/images/title5.jpg)
+<p align="center">
+  <img src="papers/IEEE_paper/images/title5.jpg" alt="Stimuli (top) and CortexDecoder reconstructions (bottom)"/>
+</p>
 
 ## Results
 
-NSD Subject 1, 998 shared test images, one sample per image. NeuroPictor is the other cortical-flatmap method; its frozen-encoder ablation matches our setting (Subject 1 only, frozen fMRI encoder). Bold marks the better of the matched pair; the full NeuroPictor is shown for reference.
+NSD Subject 1, 998 test images, one sample per image. NeuroPictor is the other cortical-flatmap method. Its frozen-encoder ablation uses the same setting as ours (Subject 1 only, frozen fMRI encoder), and bold marks the better result of that pair. The last row is the full NeuroPictor model, for reference.
 
 | Method | PixCorr↑ | SSIM↑ | Alex(2)↑ | Alex(5)↑ | Incep↑ | CLIP↑ | Eff↓ | SwAV↓ |
 |---|---|---|---|---|---|---|---|---|
@@ -16,33 +23,40 @@ NSD Subject 1, 998 shared test images, one sample per image. NeuroPictor is the 
 | **CortexDecoder** | **0.366** | **0.413** | **98.1%** | **99.1%** | **94.9%** | **93.5%** | **0.628** | 0.360 |
 | *NeuroPictor, multi-subject + fine-tuned encoder* | *0.277* | *0.385* | *98.8%* | *99.3%* | *96.2%* | *94.5%* | *0.619* | *0.334* |
 
-The full comparison with voxel-based methods is in Table 1 of the paper, and per-run metrics are in [`results/v2/`](results/v2/).
+Table 1 of the paper compares CortexDecoder with voxel-based methods.
 
-## Usage
+## Reproduce
 
-Runs on [Modal](https://modal.com) with the `braid2-flatmap-data` volume. Every call is detached, so runs survive the laptop closing. The commands below reproduce the paper's final model; any field in [`config.py`](code/v2/cortexdecoder/core/config.py) can be passed as an override.
+Everything runs on [Modal](https://modal.com) with the `braid2-flatmap-data` volume. Runs start detached, so they keep going if your laptop closes. Use the same run name in all four steps.
 
 ```bash
 modal deploy code/v2/modal_app.py
-SPAWN="python3 code/v2/scripts/spawn_runs.py"
-ROI='"brain_tokens": "flatmap_tokens_roi-nsdgeneral_fp16"'   # visual-cortex tokens from scripts/generate_roi_tokens.py
 
-$SPAWN vgg  "{\"timestamp\": \"<run-id>\", $ROI}"   # low-level bridge + DIP images
-$SPAWN clip "{\"timestamp\": \"<run-id>\", $ROI}"   # semantic bridge, MSE
-$SPAWN clip "{\"timestamp\": \"<run-id>\", $ROI, \"decoder_loss_weight\": 16.0, \"lr\": 5e-5, \"epochs\": 5, \"warmup_epochs\": 0, \"init_checkpoint\": \"<clip-run-dir>/clip_best.pt\"}"   # decoder-aware fine-tune
-$SPAWN final "{\"timestamp\": \"<run-id>\", $ROI, \"vgg_brain_tokens\": \"flatmap_tokens_roi-nsdgeneral_fp16\", \"decoder_loss_weight\": 16.0}"   # SDXL-unCLIP + eval
+# 1. Low-level bridge and DIP images
+python3 code/v2/scripts/spawn_runs.py vgg '{"timestamp": "RUN", "brain_tokens": "flatmap_tokens_roi-nsdgeneral_fp16"}'
+
+# 2. Semantic bridge, trained with MSE
+python3 code/v2/scripts/spawn_runs.py clip '{"timestamp": "RUN", "brain_tokens": "flatmap_tokens_roi-nsdgeneral_fp16"}'
+
+# 3. Decoder-aware fine-tune of the semantic bridge (CLIP_DIR is the output directory step 2 prints)
+python3 code/v2/scripts/spawn_runs.py clip '{"timestamp": "RUN", "brain_tokens": "flatmap_tokens_roi-nsdgeneral_fp16", "decoder_loss_weight": 16.0, "lr": 5e-5, "epochs": 5, "warmup_epochs": 0, "init_checkpoint": "CLIP_DIR/clip_best.pt"}'
+
+# 4. Final images and metrics
+python3 code/v2/scripts/spawn_runs.py final '{"timestamp": "RUN", "brain_tokens": "flatmap_tokens_roi-nsdgeneral_fp16", "vgg_brain_tokens": "flatmap_tokens_roi-nsdgeneral_fp16", "decoder_loss_weight": 16.0}'
 ```
 
-`<clip-run-dir>` is the output directory printed by the MSE run.
+The visual-cortex tokens (`flatmap_tokens_roi-nsdgeneral_fp16`) come from `scripts/generate_roi_tokens.py`. Any field in [`config.py`](code/v2/cortexdecoder/core/config.py) can go in the JSON, and [`pipeline.py`](code/v2/cortexdecoder/pipeline.py) lists what each stage runs.
 
-## Layout
+## Code
 
 ```
-code/v2/   pipeline (Python package + Modal app) and figure scripts
-code/v1/   original notebooks
-papers/    IEEE camera-ready (IEEE_paper/), AAAI workshop version (AAAI_workshop_paper/)
-results/   evaluation tables (v1: whole cortex, best of 10; v2: current runs)
+code/v2/
+  cortexdecoder/   Python package (data, bridge model, training, DIP and diffusion, metrics)
+  modal_app.py     Modal functions for each stage
+  scripts/         run launcher, visual-cortex ROI tokens, paper figures, Hugging Face release
 ```
+
+The code and model weights are MIT-licensed. The flatmap dataset follows the [NSD terms of use](https://cvnlab.slite.page/p/IB6BSeW_7o/Terms-and-Conditions).
 
 ## Citation
 

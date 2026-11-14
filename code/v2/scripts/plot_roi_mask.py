@@ -4,7 +4,7 @@
 
 The JSON is scripts/roi_overlap.py's output (per-patch nsdgeneral coverage + grid cell of each of the 364 patches).
 Left: every cortical patch the whole-cortex bridge reads. Middle: nsdgeneral coverage, outlined where it reaches
-roi_min_coverage. Right: the patches the encoder sees with the ROI on (all 4 time chunks kept, so 4 tokens per patch).
+MIN_COVERAGE. Right: the patches the encoder sees with the ROI on (all 4 time chunks kept, so 4 tokens per patch).
 With flatmap.npy (one 224x560 beta flatmap, 0 outside cortex), the left and right panels show it under the patch grid.
 """
 import json
@@ -17,7 +17,7 @@ from matplotlib.patches import Rectangle
 from plot_loss_sweep import save  # shared rcParams (9 pt Times, TrueType fonts) and saving
 
 GRID_H, GRID_W = 14, 35
-MIN_COVERAGE = 0.5  # Config.roi_min_coverage
+MIN_COVERAGE = 0.5  # same threshold as generate_roi_tokens.py
 TEMPORAL = 4  # CortexMAE time chunks per patch
 BLUE, LIGHT, EDGE = "#2F6FA8", "#E6E6E6", "#1E4D78"
 

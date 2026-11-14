@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from tqdm.auto import tqdm
 
 from ..core.common import DEVICE, noop, require_file, torch_load_cpu
-from ..core.config import CLIP_NUM_QUERIES
+from ..core.config import CLIP_DIM, CLIP_NUM_QUERIES
 from ..data.nsd import rows_for_ids
 
 
@@ -26,8 +26,6 @@ def brainit_paths(cfg):
         "brainit_dir": brainit_dir,
         "unclip_ckpt": os.environ.get("MINDEYE2_UNCLIP_CKPT_PATH", f"{mindeye2_dir}/unclip6_epoch0_step110000.ckpt"),
         "unclip_config": f"{brainit_dir}/src/MindEyeV2/generative_models/configs/unclip6.yaml",
-        "sdxl_config": f"{brainit_dir}/src/MindEyeV2/generative_models/configs/inference/sd_xl_base.yaml",
-        "sdxl_ckpt": os.environ.get("BRAINIT_SDXL_CKPT_PATH", f"{external}/SDXL/zavychromaxl_v30.safetensors"),
         "combined_ckpt": os.environ.get("BRAINIT_COMBINED_CKPT_PATH", f"{saved}/combined_model.ckpt"),
         "clipg_model": os.environ.get("BRAINIT_CLIPG_MODEL_PATH", f"{saved}/decoder_clipg_ext-1_save.pth"),
     }
@@ -152,9 +150,6 @@ def load_combined_model(cfg):
     paths = brainit_paths(cfg)
     for key in ["unclip_config", "unclip_ckpt", "combined_ckpt", "clipg_model"]:
         require_file(paths[key])
-    if cfg.run_brainit_sdxl_enhancement:
-        require_file(paths["sdxl_config"])
-        require_file(paths["sdxl_ckpt"])
 
     warnings.filterwarnings("ignore", message=r"`torch\.cuda\.amp\.autocast.*deprecated.*", category=FutureWarning)
     warnings.filterwarnings("ignore", message=r"torch\.utils\.checkpoint: the use_reentrant parameter should be passed explicitly.*", category=UserWarning)
@@ -185,29 +180,16 @@ def load_combined_model(cfg):
     combined.gnn_model = PrecomputedClipAdapter()
     combined = combined.to(DEVICE).eval().requires_grad_(False)
     combined.diffusion_engine.sampler.num_steps = cfg.diffusion_num_steps
-    print("diffusion ready; BrainIT SDXL enhancement:", cfg.run_brainit_sdxl_enhancement)
+    print("diffusion ready")
     return combined
 
 
 def final_recon_tag(cfg):
+    """Names the diffusion outputs. The fixed `_no_sdxl` suffix keeps the names of existing outputs on the volume."""
     variant = f"s{cfg.diffusion_start_step}_n{cfg.diffusion_num_steps}"
-    if cfg.semantic_target == "text_tokens":
-        variant = f"sdxltext_c{cfg.caption_index}_g{cfg.sdxl_guidance_scale:g}_" + variant
-    if not cfg.use_lowlevel_init_for_diffusion:
-        variant += "_no_lowlevel"
-    elif cfg.dip_feature_loss != "mse":
-        variant += f"_dip-{cfg.dip_feature_loss}"  # different DIP init images must not reuse cached diffusion
-    if not cfg.use_clip_tokens_for_diffusion:
-        variant += "_no_clip"
     if cfg.diffusion_ensemble_size > 1:
         variant += f"_bestof{cfg.diffusion_ensemble_size}_lowlevel_mse"
-    if not cfg.run_brainit_sdxl_enhancement:
-        variant += "_no_sdxl"
-    if cfg.oracle_clip:
-        variant += "_oracle_clip"
-    if cfg.diffusion_experiment_name:
-        variant += "_" + str(cfg.diffusion_experiment_name).strip().replace(" ", "_").replace("/", "-")
-    return f"singlehead_finaleval{cfg.final_eval_images}_{variant}"
+    return f"singlehead_finaleval{cfg.final_eval_images}_{variant}_no_sdxl"
 
 
 def _diffusion_paths(cfg, out_dir, tag):
@@ -218,8 +200,6 @@ def _diffusion_paths(cfg, out_dir, tag):
         "semantic_recon_dir": semantic_dir,
         "semantic_recons_path": f"{out_dir}/{s}_brainit_semantic_uint8_{tag}.pt",
         "semantic_ids_path": f"{out_dir}/{s}_brainit_semantic_img_ids_{tag}.json",
-        "enhanced_recons_path": f"{out_dir}/{s}_brainit_enhanced_uint8_{tag}.pt",
-        "enhanced_ids_path": f"{out_dir}/{s}_brainit_enhanced_img_ids_{tag}.json",
     }
 
 
@@ -244,8 +224,8 @@ def load_diffusion_inputs(cfg, data, dip_manifest, prediction):
         raise ValueError(f"{cfg.subject} diffusion inputs include non-heldout image IDs")
     rows = rows_for_ids(shared_ids, lowlevel_ids, f"{cfg.subject} predicted CLIP tokens")
     clip_tokens = prediction["pred_clip_tokens"][rows].float().contiguous()
-    if tuple(clip_tokens.shape[1:]) != (CLIP_NUM_QUERIES, cfg.semantic_dim):
-        raise ValueError(f"expected semantic tokens [B, {CLIP_NUM_QUERIES}, {cfg.semantic_dim}], got {tuple(clip_tokens.shape)}")
+    if tuple(clip_tokens.shape[1:]) != (CLIP_NUM_QUERIES, CLIP_DIM):
+        raise ValueError(f"expected CLIP tokens [B, {CLIP_NUM_QUERIES}, {CLIP_DIM}], got {tuple(clip_tokens.shape)}")
     if len(clip_tokens) != len(lowlevel_images):
         raise ValueError(f"low-level/CLIP row mismatch: lowlevel={len(lowlevel_images)} clip={len(clip_tokens)}")
     return lowlevel_images.contiguous(), clip_tokens, lowlevel_ids
@@ -267,11 +247,7 @@ def select_best_candidates(cfg, indices, candidates_uint8, lowlevel_images):
 def _generate(cfg, combined, indices, clip_tokens_all, lowlevel_images):
     idx = torch.as_tensor(indices, dtype=torch.long)
     clip_tokens = clip_tokens_all[idx].to(DEVICE, non_blocking=True).float()
-    if not cfg.use_clip_tokens_for_diffusion:
-        clip_tokens = torch.zeros_like(clip_tokens)
-    img_init = None
-    if cfg.use_lowlevel_init_for_diffusion:
-        img_init = lowlevel_images[idx].permute(0, 2, 3, 1).float().clamp(0, 1).cpu().numpy()
+    img_init = lowlevel_images[idx].permute(0, 2, 3, 1).float().clamp(0, 1).cpu().numpy()
     n = int(clip_tokens.shape[0])
     dummy = torch.empty(n, device=DEVICE, dtype=torch.long)
     samples = combined.generate(
@@ -354,38 +330,14 @@ def diffuse(cfg, combined, data, dip_manifest, prediction, out_dir, on_batch_end
         torch.save(semantic, paths["semantic_recons_path"])
         with open(paths["semantic_ids_path"], "w") as f:
             json.dump(ids, f)
-    print("semantic reconstructions:", tuple(semantic.shape), semantic.dtype, paths["semantic_recons_path"])
-
-    if cfg.run_brainit_sdxl_enhancement:
-        if os.path.exists(paths["enhanced_recons_path"]) and not cfg.rerun_diffusion:
-            final = torch_load_cpu(paths["enhanced_recons_path"])
-        else:
-            from utils.diffusion_utils import enhance_recons
-            bp = brainit_paths(cfg)
-            enhanced_hwc = enhance_recons(
-                semantic.float().div(255.0).permute(0, 2, 3, 1).numpy(),
-                unclip_config_path=bp["unclip_config"],
-                sdxl_config_path=bp["sdxl_config"],
-                sdxl_ckpt_path=bp["sdxl_ckpt"],
-                num_samples=1,
-            )
-            enhanced = torch.from_numpy(enhanced_hwc).permute(0, 3, 1, 2).float().clamp(0, 1)
-            final = F.interpolate(enhanced, size=(224, 224), mode="bicubic", align_corners=False).clamp(0, 1).mul(255).round().byte().contiguous()
-            torch.save(final, paths["enhanced_recons_path"])
-            with open(paths["enhanced_ids_path"], "w") as f:
-                json.dump(ids, f)
-        final_recons_path, final_ids_path = paths["enhanced_recons_path"], paths["enhanced_ids_path"]
-    else:
-        final = semantic
-        final_recons_path, final_ids_path = paths["semantic_recons_path"], paths["semantic_ids_path"]
-    print("final reconstructions:", tuple(final.shape), final.dtype, final_recons_path)
+    print("final reconstructions:", tuple(semantic.shape), semantic.dtype, paths["semantic_recons_path"])
 
     manifest = {
         "subject": cfg.subject,
         "n": n,
         "final_recon_tag": tag,
-        "final_recons_path": final_recons_path,
-        "final_ids_path": final_ids_path,
+        "final_recons_path": paths["semantic_recons_path"],
+        "final_ids_path": paths["semantic_ids_path"],
         "lowlevel_recons_path": dip_manifest["recons_path"],
         "lowlevel_ids_path": dip_manifest["img_ids_path"],
         **paths,
