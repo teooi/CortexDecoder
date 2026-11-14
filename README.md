@@ -30,27 +30,27 @@ Table 1 of the paper compares CortexDecoder with voxel-based methods.
 Everything runs on [Modal](https://modal.com) with the `braid2-flatmap-data` volume. Runs start detached, so they keep going if your laptop closes. Use the same run name in all four steps.
 
 ```bash
-modal deploy code/v2/modal_app.py
+modal deploy code/modal_app.py
 
 # 1. Low-level bridge and DIP images
-python3 code/v2/scripts/spawn_runs.py vgg '{"timestamp": "RUN", "brain_tokens": "flatmap_tokens_roi-nsdgeneral_fp16"}'
+python3 code/scripts/spawn_runs.py vgg '{"timestamp": "RUN", "brain_tokens": "flatmap_tokens_roi-nsdgeneral_fp16"}'
 
 # 2. Semantic bridge, trained with MSE
-python3 code/v2/scripts/spawn_runs.py clip '{"timestamp": "RUN", "brain_tokens": "flatmap_tokens_roi-nsdgeneral_fp16"}'
+python3 code/scripts/spawn_runs.py clip '{"timestamp": "RUN", "brain_tokens": "flatmap_tokens_roi-nsdgeneral_fp16"}'
 
 # 3. Decoder-aware fine-tune of the semantic bridge (CLIP_DIR is the output directory step 2 prints)
-python3 code/v2/scripts/spawn_runs.py clip '{"timestamp": "RUN", "brain_tokens": "flatmap_tokens_roi-nsdgeneral_fp16", "decoder_loss_weight": 16.0, "lr": 5e-5, "epochs": 5, "warmup_epochs": 0, "init_checkpoint": "CLIP_DIR/clip_best.pt"}'
+python3 code/scripts/spawn_runs.py clip '{"timestamp": "RUN", "brain_tokens": "flatmap_tokens_roi-nsdgeneral_fp16", "decoder_loss_weight": 16.0, "lr": 5e-5, "epochs": 5, "warmup_epochs": 0, "init_checkpoint": "CLIP_DIR/clip_best.pt"}'
 
 # 4. Final images and metrics
-python3 code/v2/scripts/spawn_runs.py final '{"timestamp": "RUN", "brain_tokens": "flatmap_tokens_roi-nsdgeneral_fp16", "vgg_brain_tokens": "flatmap_tokens_roi-nsdgeneral_fp16", "decoder_loss_weight": 16.0}'
+python3 code/scripts/spawn_runs.py final '{"timestamp": "RUN", "brain_tokens": "flatmap_tokens_roi-nsdgeneral_fp16", "vgg_brain_tokens": "flatmap_tokens_roi-nsdgeneral_fp16", "decoder_loss_weight": 16.0}'
 ```
 
-The visual-cortex tokens (`flatmap_tokens_roi-nsdgeneral_fp16`) come from `scripts/generate_roi_tokens.py`. Any field in [`config.py`](code/v2/cortexdecoder/core/config.py) can go in the JSON, and [`pipeline.py`](code/v2/cortexdecoder/pipeline.py) lists what each stage runs.
+The visual-cortex tokens (`flatmap_tokens_roi-nsdgeneral_fp16`) come from [`generate_roi_tokens.py`](code/scripts/generate_roi_tokens.py). Any field in [`config.py`](code/cortexdecoder/core/config.py) can go in the JSON, and [`pipeline.py`](code/cortexdecoder/pipeline.py) lists what each stage runs.
 
 ## Code
 
 ```
-code/v2/
+code/
   cortexdecoder/   Python package (data, bridge model, training, DIP and diffusion, metrics)
   modal_app.py     Modal functions for each stage
   scripts/         run launcher, visual-cortex ROI tokens, paper figures, Hugging Face release

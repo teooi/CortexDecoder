@@ -1,6 +1,6 @@
 """Bridge-size ablation figure: validation token cosine per epoch, same paper style as plot_loss_sweep.py.
 
-    .venv/bin/python code/v2/scripts/plot_size_sweep.py <dir with hist_*.csv> [out_stem] [--legend-right]
+    .venv/bin/python code/scripts/plot_size_sweep.py <dir with hist_*.csv> [out_stem] [--legend-right]
 
 Inputs are each run's train_clip_history.csv renamed hist_<run>.csv (hist_base, hist_L-2, hist_H-16, hist_L-8, hist_L-12).
 --legend-right makes a wide, short figure with the legend beside the axes (for a full-width appendix row).

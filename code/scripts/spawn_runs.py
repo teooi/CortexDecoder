@@ -1,7 +1,7 @@
 """Start runs on the *deployed* app and exit immediately; they keep running if the laptop sleeps or closes.
 
-    modal deploy code/v2/modal_app.py      # once, and again after any code change
-    python3 code/v2/scripts/spawn_runs.py clip '{"timestamp": "20261031_000000", "n_layers": 8}' '{...}'
+    modal deploy code/modal_app.py      # once, and again after any code change
+    python3 code/scripts/spawn_runs.py clip '{"timestamp": "20261031_000000", "n_layers": 8}' '{...}'
 
 stage: vgg | clip | final | clip+final | vgg+final. Each JSON object is one run's config overrides (any Config field).
 Unlike `modal run --detach`, no local client stays attached, so nothing on this machine can cancel the calls.

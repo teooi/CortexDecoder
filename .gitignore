@@ -22,12 +22,13 @@ papers/AAAI_paper/
 
 # third-party reference code, papers and examples (not part of this project)
 code/extra/
+/extra/
 
 # local planning notes and specs
 .plans/
 
 # exploratory analyses and figures not used in the paper (kept locally)
-code/v2/scripts/exploration/
+code/scripts/exploration/
 papers/AAAI_workshop_paper/Figures/unused/
 
 # editor / assistant local state

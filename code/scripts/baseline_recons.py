@@ -1,6 +1,6 @@
 """Released subject-1 reconstructions of MindEye2 (40 h) and NeuroPictor for the images in our comparison grid.
 
-    modal run code/v2/scripts/baseline_recons.py --ids 3434,7859,...        (NSD 0-based image ids)
+    modal run code/scripts/baseline_recons.py --ids 3434,7859,...        (NSD 0-based image ids)
 
 MindEye2: pscotti/mindeyev2 evals/final_subj01_pretrained_40sess_24bs/*_all_recons.pt (unrefined) and
 *_all_enhancedrecons.pt (refined). The index -> image id order is checked against evals/all_images.pt and the NSD

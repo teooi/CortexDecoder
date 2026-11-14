@@ -1,6 +1,6 @@
 """CortexMAE brain tokens with an encoder-level nsdgeneral ROI: only the ROI patches are visible to the encoder.
 
-    modal deploy code/v2/scripts/generate_roi_tokens.py
+    modal deploy code/scripts/generate_roi_tokens.py
     python3 -c "import modal; print(modal.Function.from_name('cortexdecoder-roi-tokens', 'generate').spawn('subj01').object_id)"
 
 Same pipeline as BRAID2/modal_jobs/generate_flatmap_tokens.py (NSD fsaverage betas -> wb_command ADAP_BARY_AREA ->

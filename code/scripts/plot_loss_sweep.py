@@ -1,6 +1,6 @@
 """Semantic-branch loss sweep figure, styled for the AAAI paper (single column, 9 pt Times, no Type-3 fonts).
 
-    .venv/bin/python code/v2/scripts/plot_loss_sweep.py <dir> [out_stem]
+    .venv/bin/python code/scripts/plot_loss_sweep.py <dir> [out_stem]
 
 <dir> holds each run's train_clip_history.csv as hist_<run>.csv and, when available, its
 shared1000_clip_embedding_eval_summary.csv as eval_<run>.csv.

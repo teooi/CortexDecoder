@@ -2,13 +2,13 @@
 
 Deploy once, then start runs with scripts/spawn_runs.py, which keep running after the laptop closes:
 
-    modal deploy code/v2/modal_app.py
-    python3 code/v2/scripts/spawn_runs.py vgg '{"timestamp": "<run-id>"}'
+    modal deploy code/modal_app.py
+    python3 code/scripts/spawn_runs.py vgg '{"timestamp": "<run-id>"}'
 
 `modal run` also works but stays attached to this machine:
 
-    modal run code/v2/modal_app.py --stage vgg --timestamp new
-    modal run code/v2/modal_app.py::smoke_test            # CPU-only checks on real data, no GPU
+    modal run code/modal_app.py --stage vgg --timestamp new
+    modal run code/modal_app.py::smoke_test            # CPU-only checks on real data, no GPU
 
 Stages are `vgg`, `clip` and `final` (see cortexdecoder/pipeline.py). `all` trains VGG and CLIP in parallel, then
 runs `final`. Every stage resumes from what is already on the volume for the given timestamp.
@@ -299,8 +299,8 @@ def main(
     """--timestamp new starts fresh runs; 0 / "" keep each stage's default.
 
     Semantic-loss ablation against an existing VGG run:
-        modal run code/v2/modal_app.py --stage clip  --timestamp new --clip-loss "mse+0.1*infonce"
-        modal run code/v2/modal_app.py --stage final --timestamp <that ts> --clip-loss "mse+0.1*infonce" --vgg-timestamp 20260907_013858
+        modal run code/modal_app.py --stage clip  --timestamp new --clip-loss "mse+0.1*infonce"
+        modal run code/modal_app.py --stage final --timestamp <that ts> --clip-loss "mse+0.1*infonce" --vgg-timestamp 20260907_013858
     """
     if timestamp == "new":
         timestamp = time.strftime("%Y%m%d_%H%M%S")

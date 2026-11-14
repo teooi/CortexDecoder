@@ -1,6 +1,6 @@
 """nsdgeneral (visual cortex) coverage of each CortexMAE patch. Defines the ROI that generate_roi_tokens.py uses.
 
-    modal run code/v2/scripts/roi_overlap.py
+    modal run code/scripts/roi_overlap.py
 
 Projects NSD's fsaverage nsdgeneral labels to fsLR-32k (wb_command ADAP_BARY_AREA, as the betas were) and onto the
 CortexMAE 224x560 flatmap with cortex_mae's own resampler, then computes each of the 364 in-brain 16x16 patches'

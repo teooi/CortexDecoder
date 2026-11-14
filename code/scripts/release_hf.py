@@ -1,6 +1,6 @@
 """Publish the Subject 1 flatmaps, reconstructions and bridge weights to Hugging Face, straight from the Modal volume.
 
-    modal deploy code/v2/scripts/release_hf.py
+    modal deploy code/scripts/release_hf.py
     python3 -c "import modal; print(modal.Function.from_name('cortexdecoder-hf-release', 'release').spawn(True).object_id)"   # dry run
     python3 -c "import modal; print(modal.Function.from_name('cortexdecoder-hf-release', 'release').spawn(False).object_id)"  # upload
 
@@ -135,7 +135,7 @@ bridge settings.
 ```python
 from huggingface_hub import hf_hub_download
 from safetensors.torch import load_file
-from cortexdecoder.core.config import Config                     # from the GitHub repo, code/v2
+from cortexdecoder.core.config import Config                     # from the GitHub repo (code/)
 from cortexdecoder.models.bridge import FlatmapSingleHeadBridge
 
 bridge = FlatmapSingleHeadBridge(Config(), brain_dim=768, num_patches=200, target="clip")
@@ -143,7 +143,7 @@ bridge.load_state_dict(load_file(hf_hub_download("{MODEL_REPO}", "clip_bridge.sa
 clip_tokens = bridge(brain_tokens)                               # [B, 200, 768] -> [B, 256, 1664]
 ```
 
-The brain tokens come from `code/v2/scripts/generate_roi_tokens.py`, which runs CortexMAE with only the visual-cortex
+The brain tokens come from `code/scripts/generate_roi_tokens.py`, which runs CortexMAE with only the visual-cortex
 patches visible.
 
 ## Results

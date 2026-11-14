@@ -1,6 +1,6 @@
 """nsdgeneral ROI on the CortexMAE patch grid, styled like the other paper figures.
 
-    .venv/bin/python code/v2/scripts/plot_roi_mask.py <subj01_roi_overlap.json> [out_stem] [flatmap.npy]
+    .venv/bin/python code/scripts/plot_roi_mask.py <subj01_roi_overlap.json> [out_stem] [flatmap.npy]
 
 The JSON is scripts/roi_overlap.py's output (per-patch nsdgeneral coverage + grid cell of each of the 364 patches).
 Left: every cortical patch the whole-cortex bridge reads. Middle: nsdgeneral coverage, outlined where it reaches
