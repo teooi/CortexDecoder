@@ -107,11 +107,36 @@ def tokens_to_brainit_vgg_features(tokens):
     ]
 
 
+def feature_distance(cfg, pred, target):
+    if cfg.dip_feature_loss == "cosine":
+        return (1 - F.cosine_similarity(pred.float(), target.float(), dim=1, eps=1e-6)).mean()  # over channels, per position
+    return F.mse_loss(pred.float(), target.float())
+
+
 def dip_loss(cfg, tokenizer, pred_img, target_features):
     loss = pred_img.new_tensor(0.0)
     for weight, pred, target in zip(cfg.dip_layer_weights, tokenizer.extract_features(pred_img), target_features):
-        loss = loss + weight * F.mse_loss(pred.float(), target.float())
+        loss = loss + weight * feature_distance(cfg, pred, target)
     return loss / sum(cfg.dip_layer_weights)
+
+
+@torch.no_grad()
+def vgg_feature_norms(cfg, data, stimuli, tokenizer, n_images=512):
+    """Mean per-position channel norm [1, 1, H, W] of each VGG layer over random training images."""
+    rng = np.random.RandomState(cfg.seed)
+    train_ids = sorted({int(i) for i in data.imgbrick_ids} - data.train_blocked_ids)
+    ids = rng.choice(train_ids, size=min(n_images, len(train_ids)), replace=False)
+    sums = None
+    for start in range(0, len(ids), 64):
+        images = stimuli.for_ids(ids[start:start + 64], size=VGG_IMAGE_SIZE).to(DEVICE)
+        norms = [f.float().norm(dim=1, keepdim=True).sum(0, keepdim=True) for f in tokenizer.extract_features(images)]
+        sums = norms if sums is None else [a + b for a, b in zip(sums, norms)]
+    print(f"VGG feature norms from {len(ids)} training images:", [round(float(s.mean() / len(ids)), 2) for s in sums])
+    return [s.cpu() / len(ids) for s in sums]
+
+
+def rescale_to_norms(features, norms):
+    return [f * (n / f.norm(dim=1, keepdim=True).clamp_min(1e-6)) for f, n in zip(features, norms)]
 
 
 def invert_vgg_features_with_dip(cfg, tokenizer, target_features, generator, desc="DIP"):
@@ -170,8 +195,18 @@ def _shard_path(paths, i):
     return f"{paths['recon_dir']}/recon_{i:04d}.pt"
 
 
-def run_dip_inversion(cfg, tokenizer, stimuli, prediction, out_dir, on_batch_end=noop):
-    """Invert predicted (or ground-truth) VGG features to low-level images. Resumable via per-image shards."""
+def run_dip_inversion(cfg, tokenizer, stimuli, prediction, out_dir, on_batch_end=noop, data=None):
+    """Invert predicted (or ground-truth) VGG features to low-level images. Resumable via per-image shards.
+
+    `data` (NSDSubjectData) is needed for dip_feature_loss="rescale", which takes target norms from training images.
+    """
+    if cfg.dip_feature_loss not in {"mse", "cosine", "rescale"}:
+        raise ValueError(f"unknown dip_feature_loss={cfg.dip_feature_loss!r}")
+    norms = None
+    if cfg.dip_feature_loss == "rescale" and not cfg.dip_use_ground_truth_vgg:
+        if data is None:
+            raise ValueError("dip_feature_loss='rescale' needs the subject data for training-image norms")
+        norms = vgg_feature_norms(cfg, data, stimuli, tokenizer)
     generator = torch.Generator(device=DEVICE)
     generator.manual_seed(cfg.seed)
     shared_img_ids = prediction["shared_img_ids"]
@@ -193,7 +228,8 @@ def run_dip_inversion(cfg, tokenizer, stimuli, prediction, out_dir, on_batch_end
             images = stimuli.for_ids([int(shared_img_ids[i]) for i in batch_indices], size=VGG_IMAGE_SIZE).to(DEVICE)
             with torch.no_grad():
                 return [feat.detach().cpu() for feat in tokenizer.extract_features(images)]
-        return tokens_to_brainit_vgg_features(pred_vgg_tokens[batch_indices])
+        features = tokens_to_brainit_vgg_features(pred_vgg_tokens[batch_indices])
+        return features if norms is None else rescale_to_norms(features, norms)
 
     start = 0
     pbar = tqdm(total=len(pending), desc="DIP invert images")

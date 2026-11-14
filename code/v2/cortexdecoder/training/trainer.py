@@ -133,7 +133,7 @@ class HeadTrainer:
             target = select_target_tokens(target_layers, query_ids, splits)
             with torch.set_grad_enabled(train), torch.autocast(device_type="cuda", dtype=AMP_DTYPE, enabled=USE_AMP):
                 pred = self.model(brain_batch, query_indices=query_ids)
-                loss, parts = vgg_contrastive_loss(pred, target, splits, self.cfg.temperature)
+                loss, parts = vgg_contrastive_loss(pred, target, splits, self.cfg.temperature, ids=id_batch.to(DEVICE))
             return pred, target, loss, parts
         target = self.data.clip_targets_for_ids(id_batch).to(DEVICE, non_blocking=True).float()
         with torch.set_grad_enabled(train), torch.autocast(device_type="cuda", dtype=AMP_DTYPE, enabled=USE_AMP):

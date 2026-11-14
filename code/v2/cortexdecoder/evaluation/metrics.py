@@ -214,6 +214,50 @@ def save_preview_grid(cfg, img_ids, true_images, low_images, final_images, indic
     return save_figure(fig, path, bbox_inches="tight")
 
 
+def table_row(cfg, metrics, method, recons, true_images, true_feats):
+    """One MindEye2-table row for 256px reconstructions against 256px stimuli."""
+    recon_feats = metrics.all(recons)
+    pixcorr, ssim = pixel_metrics(recons.cpu(), true_images.cpu())
+    row = {
+        "Subject": cfg.subject,
+        "Method": method,
+        "N": len(recons),
+        "PixCorr": pixcorr,
+        "SSIM": ssim,
+        "AlexNet(2)": two_way_score(recon_feats["alex2"], true_feats["alex2"]),
+        "AlexNet(5)": two_way_score(recon_feats["alex5"], true_feats["alex5"]),
+        "InceptionV3": two_way_score(recon_feats["inception"], true_feats["inception"]),
+        "CLIP": two_way_score(recon_feats["clip"], true_feats["clip"]),
+        "SigLIP2": two_way_score(recon_feats["siglip2"], true_feats["siglip2"]),
+        "EffNet-B": correlation_distance(recon_feats["eff"], true_feats["eff"]),
+    }
+    if "swav" in true_feats:
+        row["SwAV"] = correlation_distance(recon_feats["swav"], true_feats["swav"])
+    row["ImageRetrieval"], row["BrainRetrieval"] = retrieval_score(
+        recon_feats["clip"], true_feats["clip"], seed=cfg.seed, n_samples=min(300, len(recons)),
+    )
+    row["SigLIP2ImageRetrieval"], row["SigLIP2BrainRetrieval"] = retrieval_score(
+        recon_feats["siglip2"], true_feats["siglip2"], seed=cfg.seed, n_samples=min(300, len(recons)),
+    )
+    return row
+
+
+def evaluate_lowlevel(cfg, stimuli, dip_manifest, out_dir):
+    """Full table row for the DIP images alone (e.g. to compare DIP losses without running diffusion)."""
+    from ..reconstruction.dip import _subset_tag
+
+    low = torch_load_cpu(dip_manifest["recons_path"]).float().clamp(0, 1)
+    with open(dip_manifest["img_ids_path"]) as f:
+        img_ids = [int(i) for i in json.load(f)][:len(low)]
+    true_images = stimuli.for_ids(img_ids, size=256).float()
+    low = F.interpolate(low, size=(256, 256), mode="bicubic", align_corners=False).clamp(0, 1)
+    metrics = FeatureMetrics(cfg)
+    row = table_row(cfg, metrics, f"Low-Level ({cfg.dip_feature_loss})", low, true_images, metrics.all(true_images))
+    pd.DataFrame([row]).to_csv(f"{out_dir}/{cfg.subject}_lowlevel_table_metrics_{_subset_tag(cfg)}.csv", index=False)
+    print(pd.DataFrame([row]).to_string(index=False))
+    return row
+
+
 def evaluate_final(cfg, data, stimuli, diffusion_manifest, prediction, out_dir):
     subject, tag = cfg.subject, diffusion_manifest["final_recon_tag"]
     final_uint8 = torch_load_cpu(diffusion_manifest["final_recons_path"])
@@ -237,32 +281,8 @@ def evaluate_final(cfg, data, stimuli, diffusion_manifest, prediction, out_dir):
 
     metrics = FeatureMetrics(cfg)
     true_feats = metrics.all(true_images)
-    rows = []
-    for method, recons in [("Low-Level", low_images), ("Final", final_images)]:
-        recon_feats = metrics.all(recons)
-        pixcorr, ssim = pixel_metrics(recons.cpu(), true_images.cpu())
-        row = {
-            "Subject": subject,
-            "Method": method,
-            "N": len(recons),
-            "PixCorr": pixcorr,
-            "SSIM": ssim,
-            "AlexNet(2)": two_way_score(recon_feats["alex2"], true_feats["alex2"]),
-            "AlexNet(5)": two_way_score(recon_feats["alex5"], true_feats["alex5"]),
-            "InceptionV3": two_way_score(recon_feats["inception"], true_feats["inception"]),
-            "CLIP": two_way_score(recon_feats["clip"], true_feats["clip"]),
-            "SigLIP2": two_way_score(recon_feats["siglip2"], true_feats["siglip2"]),
-            "EffNet-B": correlation_distance(recon_feats["eff"], true_feats["eff"]),
-        }
-        if "swav" in true_feats:
-            row["SwAV"] = correlation_distance(recon_feats["swav"], true_feats["swav"])
-        row["ImageRetrieval"], row["BrainRetrieval"] = retrieval_score(
-            recon_feats["clip"], true_feats["clip"], seed=cfg.seed, n_samples=min(300, len(recons)),
-        )
-        row["SigLIP2ImageRetrieval"], row["SigLIP2BrainRetrieval"] = retrieval_score(
-            recon_feats["siglip2"], true_feats["siglip2"], seed=cfg.seed, n_samples=min(300, len(recons)),
-        )
-        rows.append(row)
+    rows = [table_row(cfg, metrics, method, recons, true_images, true_feats)
+            for method, recons in [("Low-Level", low_images), ("Final", final_images)]]
 
     # Retrieval directly on predicted vs true OpenCLIP tokens (mean-pooled), independent of diffusion.
     pred_rows = rows_for_ids(prediction["shared_img_ids"], img_ids, "predicted CLIP tokens")

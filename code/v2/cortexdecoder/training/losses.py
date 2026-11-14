@@ -34,24 +34,30 @@ def split_layers(x, splits):
     return out
 
 
-def info_nce_by_position(pred, target, temperature):
+def info_nce_by_position(pred, target, temperature, ids=None):
+    """ids: image id per row. NSD repeats images within a session, so a batch can hold two trials of one image; their
+    targets are identical, so they are excluded as negatives instead of pushing a correct prediction away."""
     b, k, _ = pred.shape
     if b < 2:
         return F.mse_loss(pred, target)
     pred = F.normalize(pred.float(), dim=-1)
     target = F.normalize(target.float(), dim=-1)
     logits = torch.einsum("bkd,ckd->kbc", pred, target) / temperature
+    if ids is not None:
+        same = ids[:, None] == ids[None, :]
+        same.fill_diagonal_(False)
+        logits = logits.masked_fill(same, float("-inf"))
     labels = torch.arange(b, device=pred.device).repeat(k)
     loss_i = F.cross_entropy(logits.reshape(k * b, b), labels)
     loss_t = F.cross_entropy(logits.transpose(1, 2).reshape(k * b, b), labels)
     return 0.5 * (loss_i + loss_t)
 
 
-def vgg_contrastive_loss(pred, target, splits, temperature):
+def vgg_contrastive_loss(pred, target, splits, temperature, ids=None):
     loss = pred.new_tensor(0.0)
     parts = {}
     for name, p, t in zip(VGG_LAYER_NAMES, split_layers(pred, splits), split_layers(target, splits)):
-        layer_loss = info_nce_by_position(p, t, temperature)
+        layer_loss = info_nce_by_position(p, t, temperature, ids=ids)
         parts[f"nce_{name}"] = layer_loss
         loss = loss + layer_loss
     return loss / len(splits), parts

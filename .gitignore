@@ -1,10 +1,21 @@
-# old IEEE and WACV versions of the paper
-papers/IEEE_paper/
+# old WACV version of the paper
 papers/wacv_paper/
+
+# IEEE camera-ready: pre-migration backups stay local
+papers/IEEE_paper/*_pre_migration.*
+
+# poster sources and exports (kept locally)
+poster/
+papers/poster/
 
 # raster images are kept locally, not in git (figure PDFs are still tracked)
 *.png
 *.PNG
+# ...except the PNG figures the IEEE paper uses (its other figures are JPGs)
+!papers/IEEE_paper/images/architecture.png
+!papers/IEEE_paper/images/bridge.png
+!papers/IEEE_paper/images/dip.png
+!papers/IEEE_paper/images/roi_mask_flatmap.png
 
 # pristine AAAI author kit (the paper lives in papers/AAAI_workshop_paper/)
 papers/AAAI_paper/
@@ -63,5 +74,6 @@ papers/**/Word/
 # compiled PDFs are build output, but figure PDFs are paper sources
 *.pdf
 !papers/**/Figures/*.pdf
+!papers/IEEE_paper/images/size_sweep_valcos_wide.pdf
 
 .DS_Store

@@ -38,7 +38,7 @@ def run_vgg_stage(cfg, commit=noop):
     commit()
 
     prediction = load_predictions(cfg.subject, out_dir, {"vgg": out_dir})
-    dip_manifest = run_dip_inversion(cfg, tokenizer, stimuli, prediction, out_dir, on_batch_end=commit)
+    dip_manifest = run_dip_inversion(cfg, tokenizer, stimuli, prediction, out_dir, on_batch_end=commit, data=data)
     eval_dip(cfg, stimuli, dip_manifest, out_dir)
     commit()
     return out_dir
@@ -72,7 +72,7 @@ def run_final_stage(cfg, commit=noop):
     from .evaluation.metrics import evaluate_final
 
     base = cfg.baseline()
-    best = {"vgg": f"{base.run_dir('vgg')}/vgg_best.pt", "clip": f"{cfg.run_dir('clip')}/clip_best.pt"}
+    best = {"vgg": f"{base.run_dir('vgg')}/vgg_best.pt", "clip": f"{cfg.clip_source().run_dir('clip')}/clip_best.pt"}
     for head, path in best.items():
         if not os.path.isfile(path):
             raise FileNotFoundError(f"Missing {head} best weights: {path}")
@@ -80,7 +80,7 @@ def run_final_stage(cfg, commit=noop):
     lowlevel_dir = base.run_dir("final_diffusion")
     os.makedirs(lowlevel_dir, exist_ok=True)
     print("source VGG run:", base.run_dir("vgg"))
-    print("source CLIP run:", cfg.run_dir("clip"))
+    print("source CLIP run:", cfg.clip_source().run_dir("clip"))
     print("low-level (VGG preds + DIP) dir:", lowlevel_dir)
 
     # A semantic bridge on another brain-token set (e.g. encoder-level ROI) must not reuse the baseline's cached
@@ -105,7 +105,7 @@ def run_final_stage(cfg, commit=noop):
         prediction["pred_clip_tokens"] = data.clip_targets_for_ids(prediction["shared_img_ids"]).half()
     stimuli = StimulusImages(cfg.data_dir)
     tokenizer = BrainITVGGTokenizer().to(DEVICE).eval()
-    dip_manifest = run_dip_inversion(base, tokenizer, stimuli, prediction, lowlevel_dir, on_batch_end=commit)
+    dip_manifest = run_dip_inversion(base, tokenizer, stimuli, prediction, lowlevel_dir, on_batch_end=commit, data=data)
     eval_dip(base, stimuli, dip_manifest, lowlevel_dir)
     del tokenizer
     commit()

@@ -31,7 +31,8 @@ HEADS = ("vgg", "clip")
 # Ablation knobs -> short run-dir tag. A run whose knobs are all at their defaults gets no tag,
 # so baseline run dirs keep the v1 notebook names.
 ABLATION_TAGS = {"clip_loss": "loss", "clip_temperature": "T", "n_layers": "L", "n_heads": "H", "semantic_target": "sem",
-                 "decoder_loss_weight": "dec", "roi": "roi", "memory_pos_embed": "pos", "brain_tokens": "tok"}
+                 "decoder_loss_weight": "dec", "roi": "roi", "memory_pos_embed": "pos", "brain_tokens": "tok",
+                 "vgg_brain_tokens": "vtok", "query_self_attn": "qsa", "vgg_query_self_attn": "vqsa"}
 # Per-patch nsdgeneral coverage on the CortexMAE patch grid (scripts/roi_overlap.py); template space, so subject-independent.
 ROI_COVERAGE_FILE = "outputs/token_diagnostics/subj01_roi_overlap.json"
 CORTEXMAE_TEMPORAL = 4  # tokens are time-major: [4 time chunks x 364 patches]
@@ -54,6 +55,7 @@ class Config:
     n_heads: int = 8
     ffn_dim: int = 3072
     dropout: float = 0.10
+    query_self_attn: bool = True
 
     # Training.
     batch_size: int = 128
@@ -80,6 +82,9 @@ class Config:
     # Brain-token set under data_dir: "flatmap_tokens_fp16" (whole cortex) or "flatmap_tokens_roi-nsdgeneral_fp16"
     # (encoder-level ROI, scripts/generate_roi_tokens.py: only nsdgeneral patches visible to CortexMAE).
     brain_tokens: str = "flatmap_tokens_fp16"
+    # Final stage: brain-token set of the paired VGG run (see baseline()); "" pairs with the whole-cortex VGG bridge.
+    vgg_brain_tokens: str = ""
+    vgg_query_self_attn: bool = True  # final stage: query_self_attn of the paired VGG run
     # Learned positional embedding added to the bridge memory (one per brain token). Off by default: CortexMAE already
     # adds positional embeddings at its input, so its output tokens carry their location.
     memory_pos_embed: bool = False
@@ -105,6 +110,10 @@ class Config:
     dip_layer_weights: tuple = (1.0, 1.0, 1.0, 1.0, 1.0)
     dip_version: str = "v2"
     dip_use_ground_truth_vgg: bool = False
+    # Feature-matching loss for DIP. The VGG bridge is trained with InfoNCE on L2-normalized tokens, so only each predicted
+    # token's direction is learned: "cosine" matches direction only; "rescale" sets each predicted feature vector's norm
+    # to the mean ground-truth norm at that layer/position (training images), then uses MSE; "mse" uses raw predictions.
+    dip_feature_loss: str = "mse"
     rerun_dip: bool = False
 
     # BrainIT/MindEye2 diffusion.
@@ -164,14 +173,20 @@ class Config:
         return f"{self.output_root}/{name}" + (f"_{self.ablation_tag}" if self.ablation_tag else "")
 
     def baseline(self):
-        """Same run with ablation knobs reset: the VGG run (and its DIP images) a semantic ablation reuses."""
+        """Same run with ablation knobs reset: the VGG run (and its DIP images) a semantic ablation reuses.
+
+        Only `brain_tokens` and `query_self_attn` survive, set from `vgg_brain_tokens` / `vgg_query_self_attn`, so the
+        VGG side can be an encoder-level ROI or cross-only run too.
+        """
         defaults = {f.name: f.default for f in fields(Config)}
-        return replace(
-            self,
-            timestamp=self.vgg_timestamp or self.timestamp,
-            vgg_timestamp="",
-            **{name: defaults[name] for name in ABLATION_TAGS},
-        )
+        reset = {name: defaults[name] for name in ABLATION_TAGS}
+        reset["brain_tokens"] = self.vgg_brain_tokens or defaults["brain_tokens"]
+        reset["query_self_attn"] = self.vgg_query_self_attn
+        return replace(self, timestamp=self.vgg_timestamp or self.timestamp, vgg_timestamp="", **reset)
+
+    def clip_source(self):
+        """Config whose run_dir('clip') holds this run's semantic bridge; the vgg_* knobs only concern the final stage."""
+        return replace(self, vgg_brain_tokens="", vgg_query_self_attn=True)
 
     @property
     def semantic_dim(self):
@@ -183,7 +198,8 @@ class Config:
 
     @property
     def dip_output_tag(self):
-        return f"{self.dip_version}_gtvgg" if self.dip_use_ground_truth_vgg else self.dip_version
+        tag = f"{self.dip_version}_gtvgg" if self.dip_use_ground_truth_vgg else self.dip_version
+        return tag if self.dip_feature_loss == "mse" else f"{tag}_{self.dip_feature_loss}"
 
     def with_overrides(self, **overrides):
         return replace(self, **{k: v for k, v in overrides.items() if v is not None})

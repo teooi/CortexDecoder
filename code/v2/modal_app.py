@@ -129,6 +129,69 @@ def train_clip_then_final(overrides: dict):
 
 
 @gpu_function
+def dip_probe(overrides: dict):
+    """DIP-only low-level eval (no diffusion) of the final config's paired VGG predictions, e.g. to compare
+    dip_feature_loss variants on a final_eval_images subset. Writes next to the VGG predictions in the low-level dir."""
+    import os
+
+    from cortexdecoder.core.common import DEVICE, seed_everything
+    from cortexdecoder.core.config import final_config
+    from cortexdecoder.data.nsd import NSDSubjectData
+    from cortexdecoder.data.stimuli import StimulusImages
+    from cortexdecoder.models.vgg_tokenizer import BrainITVGGTokenizer
+    from cortexdecoder.evaluation.metrics import evaluate_lowlevel
+    from cortexdecoder.reconstruction.dip import run_dip_inversion
+    from cortexdecoder.reconstruction.predict import load_predictions, predict_shared1000
+
+    volume.reload()
+    base = final_config(**overrides).baseline()
+    seed_everything(base.seed)
+    lowlevel_dir = base.run_dir("final_diffusion")
+    os.makedirs(lowlevel_dir, exist_ok=True)
+    commit = _throttled_commit()
+    data = NSDSubjectData(base)
+    predict_shared1000(base, data, "vgg", f"{base.run_dir('vgg')}/vgg_best.pt", lowlevel_dir)  # no-op if already predicted
+    prediction = load_predictions(base.subject, lowlevel_dir, {"vgg": lowlevel_dir})
+    stimuli = StimulusImages(base.data_dir)
+    tokenizer = BrainITVGGTokenizer().to(DEVICE).eval()
+    manifest = run_dip_inversion(base, tokenizer, stimuli, prediction, lowlevel_dir, on_batch_end=commit, data=data)
+    del tokenizer
+    row = evaluate_lowlevel(base, stimuli, manifest, lowlevel_dir)
+    commit(force=True)
+    return row
+
+
+@gpu_function
+def train_vgg_then_final(overrides: dict):
+    """Train the VGG run the final config pairs with (vgg_timestamp + vgg_brain_tokens), then final diffusion + eval."""
+    import os
+
+    from cortexdecoder.core.config import final_config
+
+    base = final_config(**overrides).baseline()
+    train_vgg.local(_vgg_overrides(base))
+    os.chdir("/")
+    return final_diffusion.local(overrides)
+
+
+def _vgg_overrides(base):
+    return {"timestamp": base.timestamp, "brain_tokens": base.brain_tokens, "query_self_attn": base.query_self_attn,
+            "warmup_epochs": base.warmup_epochs, "plateau_patience": base.plateau_patience}
+
+
+@gpu_function
+def train_vgg_then_dip(overrides: dict):
+    """Train the VGG run the final config pairs with, then the DIP-only full-metric eval (dip_probe) on its predictions."""
+    import os
+
+    from cortexdecoder.core.config import final_config
+
+    train_vgg.local(_vgg_overrides(final_config(**overrides).baseline()))
+    os.chdir("/")
+    return dip_probe.local(overrides)
+
+
+@gpu_function
 def resample_images(overrides: dict, img_ids: list, seed: int):
     """Fresh best-of-N diffusion for a few shared-1000 images (paper figures) with a new seed.
 

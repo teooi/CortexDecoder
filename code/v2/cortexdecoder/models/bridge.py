@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import torch
 import torch.nn as nn
@@ -6,15 +7,30 @@ import torch.nn as nn
 from ..core.config import CLIP_NUM_QUERIES, CORTEXMAE_TEMPORAL, HEADS, ROI_COVERAGE_FILE, VGG_TOKEN_DIM, VGG_TOTAL_TOKENS
 
 
+class CrossOnlyDecoderLayer(nn.TransformerDecoderLayer):
+    """Decoder layer without query self-attention: each output token reads only the brain tokens, as in Brain-IT."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        del self.self_attn, self.norm1, self.dropout1
+        self.self_attn = SimpleNamespace(batch_first=self.multihead_attn.batch_first)  # nn.TransformerDecoder reads this
+
+    def forward(self, tgt, memory, tgt_mask=None, memory_mask=None, tgt_key_padding_mask=None,
+                memory_key_padding_mask=None, tgt_is_causal=False, memory_is_causal=False):
+        x = self.norm2(tgt + self._mha_block(tgt, memory, memory_mask, memory_key_padding_mask, memory_is_causal))
+        return self.norm3(x + self._ff_block(x))
+
+
 class CrossAttentionBridge(nn.Module):
-    def __init__(self, brain_dim, target_dim, num_queries, d_model, n_layers, n_heads, ffn_dim, dropout, num_memory=0):
+    def __init__(self, brain_dim, target_dim, num_queries, d_model, n_layers, n_heads, ffn_dim, dropout, num_memory=0,
+                 query_self_attn=True):
         super().__init__()
         self.query_embed = nn.Parameter(torch.randn(num_queries, d_model) * 0.02)
         self.brain_proj = nn.Linear(brain_dim, d_model) if brain_dim != d_model else nn.Identity()
         self.brain_norm = nn.LayerNorm(d_model)
         # num_memory > 0: learned positional embedding per brain token, added after the norm.
         self.memory_pos = nn.Parameter(torch.randn(num_memory, d_model) * 0.02) if num_memory else None
-        decoder_layer = nn.TransformerDecoderLayer(
+        decoder_layer = (nn.TransformerDecoderLayer if query_self_attn else CrossOnlyDecoderLayer)(
             d_model=d_model,
             nhead=n_heads,
             dim_feedforward=ffn_dim,
@@ -73,6 +89,7 @@ class FlatmapSingleHeadBridge(nn.Module):
             ffn_dim=cfg.ffn_dim,
             dropout=cfg.dropout,
             num_memory=self.num_patches if cfg.memory_pos_embed and roi_patches is None else 0,
+            query_self_attn=cfg.query_self_attn,
         )
 
     def roi_view(self, brain_tokens):

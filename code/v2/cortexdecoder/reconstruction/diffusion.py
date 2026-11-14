@@ -195,6 +195,8 @@ def final_recon_tag(cfg):
         variant = f"sdxltext_c{cfg.caption_index}_g{cfg.sdxl_guidance_scale:g}_" + variant
     if not cfg.use_lowlevel_init_for_diffusion:
         variant += "_no_lowlevel"
+    elif cfg.dip_feature_loss != "mse":
+        variant += f"_dip-{cfg.dip_feature_loss}"  # different DIP init images must not reuse cached diffusion
     if not cfg.use_clip_tokens_for_diffusion:
         variant += "_no_clip"
     if cfg.diffusion_ensemble_size > 1:

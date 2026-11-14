@@ -1,8 +1,9 @@
 """Bridge-size ablation figure: validation token cosine per epoch, same paper style as plot_loss_sweep.py.
 
-    .venv/bin/python code/v2/scripts/plot_size_sweep.py <dir with hist_*.csv> [out_stem]
+    .venv/bin/python code/v2/scripts/plot_size_sweep.py <dir with hist_*.csv> [out_stem] [--legend-right]
 
 Inputs are each run's train_clip_history.csv renamed hist_<run>.csv (hist_base, hist_L-2, hist_H-16, hist_L-8, hist_L-12).
+--legend-right makes a wide, short figure with the legend beside the axes (for a full-width appendix row).
 """
 import csv
 import sys
@@ -23,9 +24,9 @@ RUNS = [
 ]
 
 
-def main(src, out_stem):
+def main(src, out_stem, legend_right=False):
     src = Path(src)
-    fig, ax = plt.subplots(figsize=(3.3, 3.8))
+    fig, ax = plt.subplots(figsize=(6.6, 3.1) if legend_right else (3.3, 3.8))
     style_axes(ax)
     for stem, label, line, face, style, marker in RUNS:
         path = src / f"{stem}.csv"
@@ -45,11 +46,18 @@ def main(src, out_stem):
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Val. token cosine")
     ax.set_xlim(0.5, 25.5)
-    fig.legend(*ax.get_legend_handles_labels(), loc="upper center", bbox_to_anchor=(0.55, 1.0),
-               ncol=1, frameon=False, handlelength=2.2, handletextpad=0.5, labelspacing=0.25)
-    fig.subplots_adjust(left=0.17, right=0.97, bottom=0.10, top=0.76)
+    if legend_right:
+        fig.legend(*ax.get_legend_handles_labels(), loc="center left", bbox_to_anchor=(0.63, 0.55),
+                   ncol=1, frameon=False, handlelength=2.2, handletextpad=0.5, labelspacing=0.35)
+        fig.subplots_adjust(left=0.09, right=0.61, bottom=0.14, top=0.97)
+    else:
+        fig.legend(*ax.get_legend_handles_labels(), loc="upper center", bbox_to_anchor=(0.55, 1.0),
+                   ncol=1, frameon=False, handlelength=2.2, handletextpad=0.5, labelspacing=0.25)
+        fig.subplots_adjust(left=0.17, right=0.97, bottom=0.10, top=0.76)
     save(fig, out_stem)
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else "papers/AAAI_workshop_paper/Figures/size_sweep_valcos")
+    args = [a for a in sys.argv[1:] if a != "--legend-right"]
+    main(args[0], args[1] if len(args) > 1 else "papers/AAAI_workshop_paper/Figures/size_sweep_valcos",
+         legend_right="--legend-right" in sys.argv)
