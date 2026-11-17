@@ -65,12 +65,12 @@
 % \vspace{- -- No negative value may be used in proximity of a caption, figure, table, section, subsection, subsubsection, or reference
 % \vskip{- -- No negative value may be used to alter spacing above or below a caption, figure, table, section, subsection, subsubsection, or reference
 
-\setcounter{secnumdepth}{0} %May be changed to 1 or 2 if section numbers are desired.
+\setcounter{secnumdepth}{2} %May be changed to 1 or 2 if section numbers are desired.
 
-\title{CortexDecoder: fMRI to Image Reconstruction from Cortical Flatmaps}
+\title{CortexDecoder: fMRI-to-Image Reconstruction from Cortical Flatmaps}
 \author{
-    Teo Imoto-Tar\textsuperscript{\rm 1},
-    Maxwell Fung\textsuperscript{\rm 2},
+    Teo Imoto-Tar\textsuperscript{\rm 1}\equalcontrib,
+    Maxwell Fung\textsuperscript{\rm 2}\equalcontrib,
     Arnav Gurha\textsuperscript{\rm 1}
 }
 \affiliations{
@@ -84,14 +84,8 @@
 \maketitle
 
 \begin{abstract}
-Recent brain decoding work has shown the potential of Vision Transformers (ViTs) to learn mappings from neural representations to visual features. Here we present CortexDecoder, a framework that reconstructs viewed images from functional magnetic resonance imaging (fMRI) flatmaps: neural responses projected onto the cortical surface and unfolded into 2D images. We show that a frozen, pretrained cortical foundation model is sufficient for competitive reconstruction. A frozen CortexMAE encoder turns flatmap patches into brain tokens, and two lightweight cross-attention bridges map these tokens to semantic CLIP embeddings and low-level image features. A frozen SDXL-unCLIP model then generates the final image from the low-level reconstruction, conditioned on the predicted CLIP embedding. On Natural Scenes Dataset (NSD) Subject 1, CortexDecoder is competitive with prior methods while training only about 83M parameters. Code is available at https://github.com/teooi/CortexDecoder.
+Recent brain decoding work has shown the potential of Vision Transformers (ViTs) to learn mappings from neural representations to visual features. Here we present CortexDecoder, a framework that reconstructs viewed images from functional magnetic resonance imaging (fMRI) flatmaps, which are neural responses projected onto the cortical surface and unfolded into 2D images. We show that a frozen, pretrained cortical foundation model is sufficient for competitive reconstruction. A frozen CortexMAE encoder turns flatmap patches into brain tokens, and two lightweight cross-attention bridges map these tokens to semantic CLIP embeddings and low-level image features. The final image is generated using a frozen SDXL-unCLIP model which takes a low-level image reconstruction as an initial image and a predicted CLIP embedding used to condition the image generation. On Natural Scenes Dataset (NSD) Subject 1 reconstruction benchmarks, CortexDecoder is competitive with prior methods and the best for cortical flatmap methods without multi-subject pretraining. CortexDecoder achieves this performance while training far fewer parameters compared to prior methods.
 \end{abstract}
-
-% Uncomment the following to link to your code, datasets, an extended version or similar.
-% You must keep this block between (not within) the abstract and the main body of the paper.
-% \begin{links}
-%     \link{Code}{https://aaai.org/example/code}
-% \end{links}
 
 %-------------------------------------------------------------------------
 \section{Introduction}
@@ -99,43 +93,37 @@ Recent brain decoding work has shown the potential of Vision Transformers (ViTs)
 
 \begin{figure*}[t]
     \centering
-    \includegraphics[width=0.9\textwidth]{Figures/title5.png}
+    \includegraphics[width=0.9\textwidth]{Figures/title5.jpg}
     \caption{Stimuli (top) and CortexDecoder reconstructions (bottom). Images from COCO \cite{lin2015microsoftcococommonobjects} (CC BY 4.0).}
     \label{fig:title}
 \end{figure*}
 
 Reconstructing visual experiences from non-invasive functional magnetic resonance imaging (fMRI) remains a central challenge in computational neuroscience. It also has applications in Brain-Computer Interfaces (BCIs), such as communication aids. With the availability of large, open-source fMRI-image datasets like the Natural Scenes Dataset (NSD) \cite{Allen2022Massive7TfMRI}, fMRI has become a natural choice for studying visual decoding. The NSD provides paired fMRI responses together with natural images viewed by subjects, with repeated presentations of visual stimuli across trials. Each sample contains a cortical response corresponding to a viewed image, providing both neural and visual representations for learning fMRI-to-image mappings.
 
-Our central question is: how much information about visual stimuli can we decode from 2D cortical flatmaps? Most brain decoding frameworks follow one of two practices. Some approaches regress directly from raw 3D functional volumes, but this is challenging due to their high dimensionality, noisy voxel-wise signal, and computational cost. Alternatively, conventional approaches that flatten voxel responses into feature vectors or average responses over anatomical parcellations do not explicitly preserve spatial information. This motivated us to explore 2D flatmaps, which preserve cortical geometry while also being directly compatible with modern vision architectures.
+Our central question is whether we can efficiently decode visual stimuli from 2D cortical flatmaps. Most brain decoding frameworks follow one of two practices. Some approaches regress directly from raw 3D functional volumes, but this is challenging due to their high dimensionality, noisy signal, and computational cost. Alternatively, conventional approaches that flatten voxel responses into feature vectors or average responses over anatomical parcellations do not explicitly preserve spatial information. This motivated us to explore 2D flatmaps, which preserve cortical geometry while also being directly compatible with modern vision architectures. Prior methods train large models. The MLP backbone of MindEye alone has 940M parameters \cite{scotti2023reconstructingmindseyefmritoimage}, and NeuroPictor, a 2.0B-parameter model, fine-tunes its fMRI encoder and trains a copy of the Stable Diffusion U-Net encoder \cite{huo2024neuropictorrefiningfmritoimagereconstruction}. We sought to use 2D cortical flatmaps for a more efficient decoder. CortexDecoder trains only 83M parameters, in about 3 GPU-hours on a single H100.
 
+We introduce CortexDecoder, a framework that decodes 2D cortical flatmaps into image stimuli using vision transformer (ViT) \cite{dosovitskiy2021imageworth16x16words} models. Since flatmaps are inherently 2D images, we can partition neural activity into discrete patches. We use a frozen pretrained CortexMAE \cite{lane2026scalingvisiontransformersfunctional} encoder---an fMRI foundation model developed by MedARC which uses a masked autoencoder framework trained on cortical flatmaps. This encoder provides us with spatially organized neural representations. By utilizing the full sequence of spatially organized patch tokens from CortexMAE, our architecture preserves local cortical geometry and avoids collapsing the brain representation into a rigid 1D feature vector.
 
+Like DETR (DEtection TRansformer) \cite{DBLP:journals/corr/abs-2005-12872} and Brain-IT \cite{beliy2025brainitimagereconstructionfmri}, our cross-attention bridge uses learned query vectors to map neural representations to visual feature spaces. Our cross-attention bridge is split into two modules to separately handle predicting semantic and structural visual information. The semantic branch predicts unpooled image CLIP \cite{radford2021learningtransferablevisualmodels} embeddings, which capture the concepts in the scene, whereas the low-level branch targets early visual features such as basic shapes and colors. Many decoding models struggle with low-level visual fidelity, often generating images that match semantically but are unfaithful in terms of pixel correlation and structural similarity. Incorporating a low-level branch targets this gap by providing structural guidance. Finally, we employ MindEye2's \cite{scotti2024mindeye2sharedsubjectmodelsenable} frozen SDXL-unCLIP model \cite{podell2023sdxlimprovinglatentdiffusion} to condition on both the low-level reconstruction and a semantic embedding to produce the final image.
 
-We introduce CortexDecoder, a framework that decodes 2D cortical flatmaps into image stimuli using vision transformer (ViT) \cite{dosovitskiy2021imageworth16x16words} models. Since flatmaps are inherently 2D images, we can partition neural activity into discrete patches. We use a frozen pretrained CortexMAE \cite{lane2026scalingvisiontransformersfunctional} encoder---an fMRI foundation model developed by MedARC using the masked autoencoder framework trained on cortical flatmaps. From this encoder, we extract spatially organized brain tokens. By utilizing the full sequence of spatially organized patch tokens from CortexMAE, our architecture preserves local cortical geometry and avoids collapsing the brain representation into a rigid 1D feature vector.
-
-Our cross-attention bridge follows DETR (DEtection TRansformer) \cite{DBLP:journals/corr/abs-2005-12872} and Brain-IT \cite{beliy2025brainitimagereconstructionfmri}, uses learned query vectors to map neural representations to visual feature spaces. Our cross-attention bridge is split into two modules to separately handle predicting semantic and structural visual information. The semantic branch predicts unpooled image CLIP \cite{radford2021learningtransferablevisualmodels} embeddings
-which capture the concepts in the scene. whereas the low-level branch targets early visual features such as basic shapes and colors. Many decoding models struggle with low-level visual fidelity, often generating images that match semantically but are unfaithful in terms of pixel correlation and structural similarity. Incorporating a low-level branch targets this gap by providing structural guidance. Finally, we employ MindEye2's \cite{scotti2024mindeye2sharedsubjectmodelsenable} frozen SDXL-unCLIP model \cite{podell2023sdxlimprovinglatentdiffusion} to condition on both the low-level reconstruction and a semantic embedding to produce the final image.
-
-Our main contributions are as follows: (1) we propose CortexDecoder, a novel architecture that uses 2D cortical flatmaps as input for fMRI-to-image reconstruction; (2) we show that flatmaps preserve enough signal for reconstruction, achieving competitive benchmark results; and (3) we show that flatmaps allow for clean tokenization and are compatible with Vision Transformers out of the box.
-
-Our main contributions are as follows: (1) we propose CortexDecoder, a reconstruction framework for cortical flatmap decoding which reads the full sequence of flatmap patch tokens with learned-query cross-attention; and (2) we show that a trained lightweight bridge together with pretrained frozen foundation models is sufficient to achieve performance competitive with other fMRI-to-image decoding models.
+We propose CortexDecoder, a reconstruction framework for cortical flatmap decoding which reads the full sequence of flatmap patch tokens with learned-query cross-attention. We also show that two trained lightweight bridges together with pretrained frozen foundation models are sufficient to achieve performance competitive with other fMRI-to-image decoding models.
 
 %-------------------------------------------------------------------------
 \section{Related Work}
 \label{sec:related_works}
 
 \subsection{fMRI-to-Image Reconstruction}
-Recent methods for fMRI-to-image reconstruction predict the embeddings of pretrained vision models such as CLIP from fMRI and generate images with pretrained diffusion models. Notably, MindEye \cite{scotti2023reconstructingmindseyefmritoimage} predicts CLIP embeddings from fMRI and uses diffusion-based image generation to reconstruct seen images, while Brain-Diffuser \cite{ozcelik2023brain} combines visual representations with latent diffusion. MindEye2 further improves reconstruction through shared-subject training and predicts OpenCLIP ViT-bigG/14 representations \cite{schuhmann2022laionb, ilharco_gabriel_2021_5143773} for SDXL-based image generation. Brain-IT \cite{beliy2025brainitimagereconstructionfmri} maps brain features to image features with a transformer that uses learned queries, a design our bridges follow. Overall, these approaches demonstrate the importance of pretrained generative models for fMRI-to-image reconstruction. However, most of them learn a mapping from voxels with a visual region of interest (ROI), such as NSD's nsdgeneral mask. NeuroPictor \cite{huo2024neuropictorrefiningfmritoimagereconstruction} instead uses cortical flatmaps, but it fine-tunes both its pretrained fMRI encoder and the diffusion model. Our work asks whether these steps are necessary: whether a frozen cortical foundation model paired with a frozen generator is sufficient for competitive reconstruction.
+Recent methods for fMRI-to-image reconstruction use fMRI data to predict the output embeddings of pretrained vision encoders such as CLIP. These output embeddings are then used to generate images with pretrained diffusion models. Notably, MindEye \cite{scotti2023reconstructingmindseyefmritoimage} predicts CLIP embeddings from fMRI data and uses diffusion-based image generation to reconstruct seen images, while Brain-Diffuser \cite{ozcelik2023brain} combines visual representations with latent diffusion. MindEye2 further improves reconstruction through shared-subject training and predicts OpenCLIP ViT-bigG/14 representations \cite{schuhmann2022laionb, ilharco_gabriel_2021_5143773} for SDXL-based image generation. DREAM \cite{xia2024dreamvisualdecodingreversing} decodes semantics, color and depth cues by reversing the pathways of the human visual system. MindTuner \cite{gong2024mindtunercrosssubjectvisualdecoding} adapts a multi-subject model to a new subject with lightweight fine-tuning, and NeuralDiffuser \cite{Li_2025} adds guidance from primary visual features to the diffusion process. Brain-IT \cite{beliy2025brainitimagereconstructionfmri} maps brain features to image features with a transformer that uses learned queries, a design our bridges follow. Overall, these approaches demonstrate the importance of pretrained generative models for fMRI-to-image reconstruction. NeuroPictor \cite{huo2024neuropictorrefiningfmritoimagereconstruction} uses cortical flatmaps as input. It fine-tunes its pretrained fMRI encoder on NSD and trains a control network on its diffusion model. Our work asks whether these steps are necessary. Namely, if a frozen cortical encoder paired with a frozen image generator is sufficient for competitive reconstruction.
 
 \subsection{fMRI Representations}
-How fMRI activity is represented is a central consideration in developing generalizable neural representations. Traditional approaches reduce fMRI volumes with anatomical parcellations, producing compact feature vectors at the expense of spatial information. On the other hand, volumetric representations retain spatial structure but at a substantially greater computational cost. Recent fMRI foundation models have explored self-supervised learning to obtain general-purpose representations from large-scale datasets. For example, BrainLM \cite{Caro2023.09.12.557460} and BrainJEPA \cite{dong2024brainjepabraindynamicsfoundation}, among others, demonstrate the potential of pretrained models for downstream fMRI tasks. CortexMAE \cite{lane2026scalingvisiontransformersfunctional} frames cortical flatmaps as intermediate representations between parcellation and volumetric fMRI, converting cortical activity into 2D maps. These representations benefit from being directly compatible with Vision Transformer architectures. We use a frozen, pretrained CortexMAE encoder to turn each flatmap into a sequence of patch tokens, which our model maps to image features for reconstruction.
-
+The core consideration when developing generalizable neural representations is how fMRI activity is represented. Traditional approaches reduce fMRI volumes masked with anatomical regions of interest (ROIs), producing compact feature vectors at the expense of spatial information. On the other hand, volumetric representations retain spatial structure but at a substantially greater computational cost. Recent fMRI foundation models have explored self-supervised learning to obtain general-purpose representations from large-scale datasets. For example, BrainLM \cite{Caro2023.09.12.557460} and BrainJEPA \cite{dong2024brainjepabraindynamicsfoundation}, among others, demonstrate the potential of pretrained models for downstream fMRI tasks. CortexMAE \cite{lane2026scalingvisiontransformersfunctional} frames cortical flatmaps as intermediate representations between parcellation and volumetric fMRI, converting cortical activity into 2D maps. This representation benefits from being directly compatible with Vision Transformer architectures. We use a frozen, pretrained CortexMAE encoder to turn each flatmap into a sequence of patch tokens, which our model maps to image features for reconstruction.
 
 \subsection{Semantic and Low-Level Visual Features}
 Faithful visual reconstruction benefits from both high-level semantic information and lower-level visual structure. CLIP and OpenCLIP provide semantic visual representations that have been widely adopted for image generation and brain decoding. At the same time, convolutional feature representations such as VGG \cite{simonyan2015deepconvolutionalnetworkslargescale} retain spatial information that may be lost in semantic embeddings. Recent brain decoding approaches have consequently explored multiple visual representations. MindEye and Brain-IT use semantic representations alongside lower-level visual features to improve image reconstruction. CortexDecoder follows this general pipeline by learning separate mappings from brain representations to OpenCLIP semantic tokens and VGG features, which are subsequently combined during image generation.
 
-\begin{figure*}[t]
+\begin{figure*}[!t]
 \centering
-\includegraphics[width=0.75\textwidth]{Figures/model4.png}
+\includegraphics[width=0.8\textwidth]{Figures/architecture.png}
 \caption{CortexDecoder overview. A frozen CortexMAE encoder turns the visual-cortex patches of the cortical flatmap into 200 brain tokens. Two cross-attention bridges, the only trained components, predict OpenCLIP tokens (semantic) and VGG16-BN features (low-level). A DIP-inverted low-level image initializes SDXL-unCLIP, which is conditioned on the predicted OpenCLIP tokens to produce the final image. Images from COCO \cite{lin2015microsoftcococommonobjects} (CC BY 4.0).}
 \label{fig:model_schematic}
 \end{figure*}
@@ -143,12 +131,12 @@ Faithful visual reconstruction benefits from both high-level semantic informatio
 %-------------------------------------------------------------------------
 \section{CortexDecoder}
 \label{sec:cortex_decoder}
-CortexDecoder is a two-branch brain decoding framework that maps cortical flatmap representations to high-level semantic and low-level visual features for image reconstruction. The model first encodes cortical flatmaps using a pretrained CortexMAE encoder, producing spatially organized brain tokens. These brain tokens are then fed into the cross-attention bridge, which predicts visual image features. The semantic branch predicts unpooled CLIP embeddings, while the low-level branch predicts VGG features. Finally, the predicted visual representations are provided to a frozen diffusion decoder to reconstruct the corresponding image.
+CortexDecoder is a two-branch brain decoding framework that maps cortical flatmap representations to high-level semantic and low-level visual features for image reconstruction. The model first encodes cortical flatmaps using a pretrained CortexMAE encoder, producing spatially organized brain tokens. These brain tokens are then fed into two cross-attention bridges, which predict visual image features. The semantic branch predicts unpooled CLIP embeddings, while the low-level branch predicts VGG features. Finally, the predicted visual representations are provided to a frozen diffusion decoder to reconstruct the corresponding image.
 
-Training both bridges takes 3 GPU-hours on a single H100, compared with about 60 H100-hours reported for Brain-IT; all pretrained models (CortexMAE, VGG16, OpenCLIP, SDXL-unCLIP) are used frozen.
+Training both bridges, including the decoder-aware fine-tune, takes 3 GPU-hours on a single H100, compared with about 60 H100-hours reported for Brain-IT. All pretrained models (CortexMAE, VGG16-BN, OpenCLIP, SDXL-unCLIP) are used frozen. Both bridges are trained with AdamW (learning rate $5\times10^{-4}$, weight decay $10^{-2}$). The semantic bridge is trained for 25 epochs with batch size 64 and then fine-tuned for 5 more epochs at learning rate $5\times10^{-5}$ with the decoder-aware loss described in Section~\ref{sec:semantic}. The low-level bridge is trained for 30 epochs with batch size 128.
 
 \subsection{Natural Scenes Dataset}
-The Natural Scenes Dataset (NSD) is a large-scale 7T fMRI dataset in which eight participants viewed natural images drawn from MS-COCO (Microsoft Common Objects in Context) \cite{lin2015microsoftcococommonobjects} across up to 40 scan sessions each. Each session comprises 750 trials; in each trial, one image is presented for 3 seconds, followed by a 1-second blank. Each subject viewed 10,000 unique images, each repeated 3 times, for a total of 30,000 trials per subject. A subset of 1000 images (shared1000) was presented to all subjects and is reserved as a standard test set throughout the literature.
+The Natural Scenes Dataset (NSD) is a large-scale 7T fMRI dataset in which eight participants viewed natural images drawn from MS-COCO (Microsoft Common Objects in Context) \cite{lin2015microsoftcococommonobjects} across up to 40 scan sessions each. Each session comprises 750 trials. In each trial, one image is presented for 3 seconds, followed by a 1-second blank. Each subject viewed 10,000 unique images, each repeated 3 times, for a total of 30,000 trials per subject. A subset of 1000 images (shared1000) was presented to all subjects and is reserved as a standard test set throughout the literature.
 
 The NSD experiment uses a rapid event-related design in which a new image stimulus is presented every 4 seconds, so successive stimuli occur within the timescale of the hemodynamic response. Because the responses to successive trials overlap, single-trial responses cannot be read directly from the time series. A general linear model (GLM) \cite{10.7554/eLife.77599} performs this deconvolution, and its output is a static spatial map of cortical activity per trial rather than a time series. This is precisely the form that 2D flatmap representations and patch-based tokenization assume. We note that the CortexMAE encoder is spatiotemporal and retains a temporal patch dimension from its pretraining on the BOLD time series. However, because our inputs are static single-trial beta maps, we do not utilize this temporal dimension in CortexDecoder.
 
@@ -157,27 +145,28 @@ NSD's surface betas are distributed on a fsaverage mesh \cite{FISCHL2012774} (16
 
 The flatmap is divided into non-overlapping $16\times16$ spatial patches, forming a $14\times35$ grid of 490 cells. Since the cortical surface occupies only part of the bounding box, 364 cells contain cortex and the remaining cells are background. CortexMAE uses a validity mask to exclude these background patches, so only 364 cortical patches are embedded.
 
-CortexMAE is a spatiotemporal masked autoencoder \cite{he2021maskedautoencodersscalablevision} pretrained on BOLD time series. In other words, its patch embedding operates over both space and time. In our case, the input is a single-trial beta map, which has no temporal component. To use the pretrained model, we represent each beta map as a static 16-frame clip. Over the whole flatmap, the encoder outputs 1456 tokens of dimension 768 (364 patches $\times$ 4 temporal chunks). We restrict it to visual cortex: only the 50 patches that lie mostly inside NSD's nsdgeneral mask are visible to the encoder, the same way CortexMAE drops masked patches during pretraining. This gives 200 brain tokens per trial.
+CortexMAE is a spatiotemporal masked autoencoder \cite{he2021maskedautoencodersscalablevision} pretrained on BOLD time series. In other words, its patch embedding operates over both space and time. In our case, the input is a single-trial beta map, which has no temporal component. To use the pretrained model, we represent each beta map as a static 16-frame clip. Over the whole flatmap, the encoder outputs 1456 tokens of dimension 768 (364 patches $\times$ 4 temporal chunks). We restrict it to visual cortex by making only the 50 patches that lie mostly inside NSD's nsdgeneral mask visible to the encoder, the same way CortexMAE drops masked patches during pretraining. This gives 200 brain tokens per trial.
 
-\begin{figure}[t]
+\begin{figure}[!t]
 \centering
-\includegraphics[width=0.8\columnwidth]{Figures/cross.jpg}
-\caption{Cross-attention bridge. Learned queries, one per output token, attend to the brain tokens through 4 blocks of self-attention, cross-attention and FFN. A linear layer projects each query to the target feature dimension. Each branch has its own bridge. Images from COCO \cite{lin2015microsoftcococommonobjects} (CC BY 4.0).}
+\includegraphics[width=0.7\columnwidth]{Figures/bridge.png}
+\caption{Cross-attention bridge. Learned queries, one per output token, attend to the brain tokens through 4 blocks of self-attention, cross-attention and FFN. A linear layer projects each query to the target feature dimension. Each branch has its own bridge.}
 \label{fig:cross_attention_bridge}
 \end{figure}
 
 \subsection{Cross-Attention Bridge}
-The bridge maps the sequence of brain tokens to a sequence of visual feature tokens. Its design follows DETR (DEtection TRansformer) \cite{DBLP:journals/corr/abs-2005-12872}. We define a set of learned query vectors with one query per output token. These are randomly initialized and trained jointly with the rest of the model. Each query is responsible for predicting one token of the target visual representation.
+\label{sec:bridge}
+The bridge maps the sequence of brain tokens to a sequence of visual feature tokens. Like DETR \cite{DBLP:journals/corr/abs-2005-12872}, the bridge uses a set of learned query vectors, with one query per output token. These are randomly initialized and trained jointly with the rest of the model. Each query is responsible for predicting one token of the target visual representation.
 
-The brain tokens serve as memory. They are layer-normalized and projected to the model width when the two dimensions differ. In our case, the CortexMAE embedding dimension and the bridge width are both 768, so no projection is needed. The queries are then passed through a stack of transformer decoder layers. Each layer applies self-attention among the queries, then cross-attention from the queries into the brain memory, and finally a position-wise feed-forward network (FFN). Self-attention lets the queries coordinate with one another so that neighboring output tokens can share information. Cross-attention is where the decoding happens. Each query attends over all 200 brain tokens and pools the ones that carry information about its target feature. A final linear layer projects each decoded query to the dimensionality of the target representation.
+The brain tokens from CortexMAE serve as memory and are layer normalized to stabilize training. The queries are then passed through a stack of transformer decoder layers. Each layer applies self-attention among the queries, then cross-attention from the queries into the brain memory, and finally a position-wise feed-forward network (FFN). Self-attention lets the queries coordinate with one another so that neighboring output tokens can share information. Each query attends over all 200 brain tokens and pools the ones that carry information about its target feature. A final linear layer projects each decoded query to the dimensionality of the target representation.
 
-We use 4 decoder layers and 8 attention heads. The model width is 768, with a feed-forward dimension of 3072 and dropout of 0.1. The semantic and low-level branches share these settings.
+We use 4 decoder layers and 8 attention heads, the optimal configuration from our ablations (see Table~\ref{tab:size_sweep} for other sizes). The model width is 768, with a feed-forward dimension of 3072 and dropout of 0.1. The semantic and low-level branches share these settings.
 
 The key property of this design is that the brain representation remains a sequence throughout the pipeline. Each query attends over the full set of brain tokens. A pooled brain vector would make every query attend to the same input and reduce the decoder to a multilayer perceptron (MLP) applied identically at each output position.
 
-We instantiate the bridge twice with one instance per branch and train the two independently rather than sharing a trunk. The semantic branch uses 256 queries and projects to 1664 dimensions. This matches the shape of the unpooled OpenCLIP ViT-bigG/14 \cite{radford2021learningtransferablevisualmodels, ilharco_gabriel_2021_5143773, schuhmann2022laionb} patch tokens that the diffusion decoder expects as conditioning. The low-level branch uses 7190 queries and projects to 512 dimensions. This matches the concatenated token count of the five VGG16-BN feature layers described in the Low-Level Branch section. The two branches therefore differ by more than an order of magnitude in output length. They also optimize different losses, since the semantic target is dense and continuous, while the low-level target is better matched by a contrastive objective.
+We instantiate the bridge twice with one instance per branch and train the two independently. The semantic branch uses 256 queries and projects to 1664 dimensions. This matches the shape of the unpooled OpenCLIP ViT-bigG/14 \cite{radford2021learningtransferablevisualmodels, ilharco_gabriel_2021_5143773, schuhmann2022laionb} patch tokens that the diffusion decoder expects as conditioning. The low-level branch uses 7190 queries and projects to 512 dimensions. The two branches therefore differ by more than an order of magnitude in output length. They also optimize different losses, since the semantic target is dense and continuous, while the low-level target is better matched by a contrastive objective.
 
-The semantic branch is trained with the mean squared error between the predicted and target token sequences:
+The semantic branch is trained with the mean squared error between the predicted and target token sequences,
 \begin{equation}
 \mathcal{L}_{\mathrm{CLIP}} = \big\lVert \hat{\mathbf{C}} - \mathbf{C} \big\rVert_2^2,
 \end{equation}
@@ -185,24 +174,25 @@ where $\hat{\mathbf{C}}, \mathbf{C} \in \mathbb{R}^{256 \times 1664}$ are the pr
 
 To train the low-level branch, we extract target tokens from five intermediate layers of a frozen VGG16-BN network (\texttt{relu1\_2} through \texttt{relu5\_3}, totaling $7{,}190$ spatial tokens of dimension $D=512$). For memory efficiency, at each step we randomly sample $\{512, 512, 128, 64, 16\}$ spatial positions from the five layers.
 
-At each sampled position, we use the InfoNCE loss \cite{oord2019representationlearningcontrastivepredictive} as in CLIP \cite{radford2021learningtransferablevisualmodels}: the prediction for each trial should be closer to its own target than to the targets of the other trials in the batch,
+At each sampled position, we use the InfoNCE loss \cite{oord2019representationlearningcontrastivepredictive} as was used in CLIP \cite{radford2021learningtransferablevisualmodels}. It trains the prediction for each trial to be closer to its own target than to the targets of the other trials in the batch,
 \begin{equation}
 \mathcal{L}_{\mathrm{VGG}} = -\log \frac{\exp\big(\cos(\hat{\mathbf{z}}_b, \mathbf{z}_b)/\tau\big)}{\sum_{c} \exp\big(\cos(\hat{\mathbf{z}}_b, \mathbf{z}_c)/\tau\big)},
 \end{equation}
-where $\hat{\mathbf{z}}_b$ and $\mathbf{z}_b$ are the predicted and target VGG features of trial $b$ at that position, $c$ runs over the trials in the batch, and $\tau = 0.07$. As in CLIP, we average this with the same loss with predictions and targets swapped. Because NSD repeats images, a batch can contain two trials of the same image; we drop such pairs from the denominator, since they are not true negatives. The loss is averaged over trials, sampled positions and the five layers.
+where $\hat{\mathbf{z}}_b$ and $\mathbf{z}_b$ are the predicted and target VGG features of trial $b$ at that position, $c$ indexes the trials in the batch, and $\tau = 0.07$. As in CLIP, we average this with the same loss with predictions and targets swapped. Because NSD repeats images, a batch can contain two trials of the same image. We drop such pairs from the denominator, since they are not true negatives. The loss is averaged over trials, sampled positions and the five layers.
 
 \subsection{Semantic Branch}
+\label{sec:semantic}
 The semantic branch predicts the image representations that condition the diffusion decoder. Its target is the unpooled patch-token sequence produced by the OpenCLIP ViT-bigG/14 vision encoder pretrained on LAION-2B \cite{schuhmann2022laionb}. For each stimulus image, we take the 256 patch tokens before the final projection and discard the class (CLS) token. Each token is 1664-dimensional. The bridge therefore uses 256 queries and projects to 1664 dimensions so that its output matches the target.
 
 We use an unpooled token sequence rather than a single pooled embedding. A pooled CLIP vector summarizes an image but discards its spatial layout. A token sequence retains that layout and gives the diffusion decoder a spatially structured conditioning signal. The diffusion decoder we use is a pretrained SDXL-unCLIP model whose cross-attention was trained to condition on exactly 256 bigG tokens of 1664 dimensions. Matching this shape means the decoder can be used frozen with no fine-tuning on our part. Predicting a smaller CLIP variant would require retraining the decoder's conditioning pathway.
 
 The OpenCLIP encoder is frozen and used only to produce targets. We extract the token sequence for every stimulus image once and cache it. During training, the branch never runs the image encoder.
 
-MSE weighs every token dimension equally, but the frozen decoder is more sensitive to some directions of its conditioning than to others. After training with MSE alone, we therefore fine-tune the semantic bridge for 5 more epochs with an added decoder-aware term: the frozen SDXL-unCLIP's own denoising loss on the stimulus image, conditioned on the predicted tokens. This term tells the bridge which predictions let the decoder reconstruct the true image. It is weighted by $\lambda = 16$ and uses only the noise levels that our image-to-image sampling visits. The decoder stays frozen, and only the bridge is updated.
+MSE weighs every token dimension equally, but the frozen decoder is more sensitive to some directions of its conditioning than to others. After training with MSE alone, we therefore fine-tune the semantic bridge for 5 more epochs with an added decoder-aware term. This term is the frozen SDXL-unCLIP's own denoising loss on the stimulus image, conditioned on the predicted tokens. It tells the bridge which predictions let the decoder reconstruct the true image. The term is weighted by $\lambda = 16$ (Table~\ref{tab:lambda_sweep}) and uses only the noise levels that our image-to-image sampling visits. The decoder stays frozen, and only the bridge is updated.
 
-\begin{figure}[t]
+\begin{figure}[!t]
 \centering
-\includegraphics[width=0.95\columnwidth]{Figures/DIP3.png}
+\includegraphics[width=\columnwidth]{Figures/dip.png}
 \caption{Low-level reconstruction with Deep Image Prior. A U-Net maps noise to an image whose frozen VGG16-BN features are matched to the bridge's predicted features. After 2000 optimization steps, its output is the low-level reconstruction.}
 \label{fig:dip_reconstruction}
 \end{figure}
@@ -213,26 +203,10 @@ From the predicted VGG feature representation, we reconstruct a low-level image 
 
 To convert this representation into the initial image, we optimize a separate DIP U-Net for each image. The U-Net is a small encoder-decoder convolutional generator that maps random Gaussian noise to an RGB image, which is then passed through a frozen VGG16-BN network. The extracted VGG features are compared against the brain-predicted VGG representation using an MSE loss. The gradient is backpropagated only through the DIP U-Net, iteratively updating the generator for a fixed 2000 optimization steps to produce the final low-level reconstruction.
 
-\subsection{Final Image Reconstruction}
-To generate the final image reconstruction, we combine the image capturing low-level features generated using DIP with the semantic CLIP prediction using the MindEye2 Stable Diffusion XL unCLIP model (SDXL-unCLIP). SDXL-unCLIP is a pretrained image generation model that generates images from OpenCLIP ViT-bigG/14 image embeddings instead of text-prompt embeddings. The intention is for the low-level DIP image to provide layout, color, and coarse structure while the predicted OpenCLIP ViT-bigG/14 tokens contribute the semantic context of the image.
-
-We first add Gaussian noise to the low-level image to partially corrupt fine detail while preserving coarse layout and color. This re-noised image becomes the initial state for SDXL-unCLIP, anchoring the image structure. The predicted OpenCLIP token representation then steers the denoising process toward the correct semantic context, turning the blurry low-level reconstruction into a detailed final image. With this approach, the reconstruction should reflect both the content and the structure of the stimulus. We run this diffusion process multiple times for each image and select the reconstruction whose downscaled version has the lowest MSE relative to the low-level reconstruction. This keeps the final image from straying too far from the predicted low-level image structure.
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=0.75\columnwidth]{Figures/stacked_triptych_collage4.png}
-\caption{Stimulus (left), low-level DIP reconstruction (middle) and final diffusion reconstruction (right). Images from COCO \cite{lin2015microsoftcococommonobjects} (CC BY 4.0).}
-\label{fig:stacked_triptych}
-\end{figure}
-
-%-------------------------------------------------------------------------
-\section{Results}
-\label{sec:results}
-
-\begin{table*}[t]
+\begin{table*}[!t]
 \centering
 \small
-\setlength{\tabcolsep}{2.5pt}
+\setlength{\tabcolsep}{1.5pt}
 \begin{tabularx}{\textwidth}{@{}ll*{8}{Y}@{}}
 \toprule
 & & \multicolumn{4}{c}{Low-Level} & \multicolumn{4}{c}{High-Level} \\
@@ -241,34 +215,43 @@ We first add Gaussian noise to the low-level image to partially corrupt fine det
 & PixCorr$\uparrow$ & SSIM$\uparrow$ & Alex(2)$\uparrow$ & Alex(5)$\uparrow$
 & Incep$\uparrow$ & CLIP$\uparrow$ & Eff$\downarrow$ & SwAV$\downarrow$ \\
 \midrule
-& Brain-Diffuser \cite{ozcelik2023brain}
+& Brain-Diffuser \cite{ozcelik2023brain} (2023)
 & 0.305 & 0.367 & 96.7\% & 97.4\%
 & 87.8\% & 92.5\% & 0.768 & 0.415 \\
-& MindEye1 \cite{scotti2023reconstructingmindseyefmritoimage}
+& MindEye1 \cite{scotti2023reconstructingmindseyefmritoimage} (2023)
 & \textbf{0.390} & 0.337 & 97.4\% & 98.7\%
-& 94.5\% & \textbf{94.6\%} & 0.630 & 0.358 \\
-\multirow{-3}{*}{Voxels} & MindEye2 \cite{scotti2024mindeye2sharedsubjectmodelsenable}
-& \underline{0.374} & \textbf{0.439} & 97.8\% & \underline{99.1\%}
-& \textbf{96.2\%} & 93.6\% & \textbf{0.609} & \underline{0.338} \\
+& 94.5\% & 94.6\% & 0.630 & 0.358 \\
+& DREAM \cite{xia2024dreamvisualdecodingreversing} (2024)
+& 0.288 & 0.338 & 95.0\% & 97.5\%
+& 94.8\% & \underline{95.2\%} & 0.638 & 0.413 \\
+& MindEye2 \cite{scotti2024mindeye2sharedsubjectmodelsenable} (2024)
+& 0.374 & \textbf{0.439} & 97.8\% & 99.1\%
+& \underline{96.2\%} & 93.6\% & \underline{0.609} & 0.338 \\
+& MindTuner \cite{gong2024mindtunercrosssubjectvisualdecoding} (2024)
+& 0.371 & \underline{0.428} & 97.7\% & \underline{99.3\%}
+& \textbf{96.4\%} & 94.3\% & \textbf{0.601} & \textbf{0.331} \\
+\multirow{-6}{*}{Voxels} & NeuralDiffuser \cite{Li_2025} (2025)
+& \underline{0.378} & 0.330 & \underline{98.3\%} & \textbf{99.4\%}
+& 95.8\% & \textbf{95.4\%} & 0.642 & 0.380 \\
 \midrule
-& NeuroPictor \cite{huo2024neuropictorrefiningfmritoimagereconstruction}
-& 0.277 & 0.385 & \textbf{98.8\%} & \textbf{99.3\%}
-& \textbf{96.2\%} & \underline{94.5\%} & \underline{0.619} & \textbf{0.334} \\
+& NeuroPictor \cite{huo2024neuropictorrefiningfmritoimagereconstruction} (2024)
+& 0.277 & 0.385 & \textbf{98.8\%} & \underline{99.3\%}
+& \underline{96.2\%} & 94.5\% & 0.619 & \underline{0.334} \\
 \rowcolor{oursrow}
 \cellcolor{white} & \textbf{CortexDecoder (ours)}
-& 0.366 & \underline{0.413} & \underline{98.1\%} & \underline{99.1\%}
-& \underline{94.9\%} & 93.5\% & 0.628 & 0.360 \\
-\multirow{-3}{*}{Flatmap} & CortexDecoder (low-level)
+& 0.366 & 0.413 & 98.1\% & 99.1\%
+& 94.9\% & 93.5\% & 0.628 & 0.360 \\
+\cmidrule(l){2-10}
+\multirow{-3}{*}{Flatmap} & \textbf{CortexDecoder (low-level)}
 & 0.394 & 0.414 & 97.8\% & 99.2\%
 & 91.5\% & 76.8\% & 0.840 & 0.572 \\
 \bottomrule
 \end{tabularx}
-\caption{Quantitative comparison on NSD Subject 1 with baseline results taken from previous state-of-the-art methods. The last row is our low-level reconstruction before diffusion. Bold indicates the best result and underline the second best.}
+\caption{Quantitative comparison on NSD Subject 1 with baseline results taken from previous state-of-the-art methods, where MindEye2, MindTuner, NeuralDiffuser and NeuroPictor pretrain on multiple subjects before fine-tuning on Subject 1. The last row is our low-level reconstruction before diffusion (not ranked). Bold indicates the best result and underline the second best.}
 \label{tab:reconstruction}
 \end{table*}
 
-
-\begin{table*}[t]
+\begin{table*}[!t]
 \centering
 \small
 \setlength{\tabcolsep}{3pt}
@@ -280,7 +263,7 @@ We first add Gaussian noise to the low-level image to partially corrupt fine det
 & PixCorr$\uparrow$ & SSIM$\uparrow$ & Alex(2)$\uparrow$ & Alex(5)$\uparrow$
 & Incep$\uparrow$ & CLIP$\uparrow$ & Eff$\downarrow$ & SwAV$\downarrow$ \\
 \midrule
-NeuroPictor (frozen encoder)
+NeuroPictor (2024), frozen encoder
 & 0.220 & 0.342 & 97.5\% & 98.8\%
 & 93.8\% & 92.8\% & 0.657 & \textbf{0.360} \\
 \rowcolor{oursrow}
@@ -289,83 +272,66 @@ NeuroPictor (frozen encoder)
 & \textbf{94.9\%} & \textbf{93.5\%} & \textbf{0.628} & \textbf{0.360} \\
 \bottomrule
 \end{tabularx}
-\caption{Matched comparison on NSD Subject 1 with NeuroPictor's frozen-encoder ablation \cite{huo2024neuropictorrefiningfmritoimagereconstruction}. Both methods train on Subject 1 only, keep the pretrained fMRI encoder frozen and generate one sample per image. Test images: 982 (NeuroPictor) and 998 (ours). Bold indicates best performance.}
+\caption{Matched comparison on NSD Subject 1 with NeuroPictor's frozen-encoder ablation \cite{huo2024neuropictorrefiningfmritoimagereconstruction}. Both methods train on Subject 1 only, keep the pretrained fMRI encoder frozen and generate one sample per image. NeuroPictor is evaluated on 982 test images and CortexDecoder on 998. Bold indicates best performance.}
 \label{tab:matched}
 \end{table*}
 
+\subsection{Final Image Reconstruction}
+\label{sec:final}
+To generate the final image reconstruction, we combine the image capturing low-level features generated using DIP with the semantic CLIP prediction using the MindEye2 Stable Diffusion XL unCLIP model (SDXL-unCLIP). SDXL-unCLIP is a pretrained image generation model that generates images from OpenCLIP ViT-bigG/14 image embeddings instead of text-prompt embeddings. The intention is for the low-level DIP image to provide layout, color, and coarse structure while the predicted OpenCLIP ViT-bigG/14 tokens contribute the semantic context of the image.
 
-We evaluate CortexDecoder on the NSD shared1000 test set, which is kept completely separate from the training and validation data to prevent leakage. All metrics compare reconstructions against the stimulus images viewed by each subject, and we report the average over Subjects 1 and 2. We report PixCorr (Pixel Correlation), SSIM (Structural Similarity Index Measure) \cite{1284395}, AlexNet(2), AlexNet(5) \cite{NIPS2012_c399862d}, InceptionV3 \cite{szegedy2015rethinkinginceptionarchitecturecomputer}, CLIP \cite{radford2021learningtransferablevisualmodels}, EfficientNet-B1 \cite{tan2020efficientnetrethinkingmodelscaling} and SwAV-ResNet50 \cite{caron2021unsupervisedlearningvisualfeatures}. PixCorr and SSIM measure pixel and structural similarity while AlexNet, InceptionV3 and CLIP measure feature-space similarity. EfficientNet and SwAV report correlation distance, where lower is better.
+We first add Gaussian noise to the low-level image to partially corrupt fine detail while preserving coarse layout and color. This re-noised image becomes the initial state for SDXL-unCLIP, anchoring the image structure. The predicted OpenCLIP token representation then steers the denoising process toward the correct semantic context, turning the blurry low-level reconstruction into a detailed final image. With this approach, the reconstruction should reflect both the content and the structure of the stimulus.
 
-We report metrics for both the low-level DIP reconstruction and the final diffusion reconstruction. This allows us to evaluate the contribution of the low-level branch separately from the semantic conditioning. We generate a single diffusion sample per image.
-
-\subsection{Reconstruction Benchmarks}
-CortexDecoder is competitive with prior methods in capturing low-level and mid-level features in reconstructed images. Specifically, our model performs well on PixCorr and SSIM, reflecting the contribution of the low-level branch. However, it is weaker at capturing semantic features in the reconstructed images.
-
-The results show that introducing semantic conditioning degrades low-level fidelity. For example, the low-level reconstruction on its own scores higher on most low-level metrics (PixCorr, AlexNet(2) and AlexNet(5)) than the final reconstruction, where semantic conditioning is introduced in the diffusion stage. We conclude that the final reconstruction, which combines semantic and low-level representations, improves on semantic metrics at the expense of low-level performance.
-
-% TODO (AAAI workshop): single-subject (Subj 1) comparison against per-subject numbers from prior work.
-% TODO: Ablations -- (a) bridge depth / transformer block count, (b) number of MHA heads/layers,
-%       (c) semantic-branch losses (e.g., MSE vs. cosine vs. contrastive vs. combinations).
-% \subsection{Ablation Studies}
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.75\columnwidth]{Figures/stacked_triptych_collage4.jpg}
+\caption{Stimulus (left), low-level DIP reconstruction (middle) and final diffusion reconstruction (right). Images from COCO \cite{lin2015microsoftcococommonobjects} (CC BY 4.0).}
+\label{fig:stacked_triptych}
+\end{figure}
 
 %-------------------------------------------------------------------------
-\section{Conclusion}
-\label{sec:conclusion}
-We introduce CortexDecoder, an fMRI-to-image reconstruction framework that uses 2D cortical flatmaps as neural representations for visual decoding. By converting cortical flatmaps into patch tokens, CortexDecoder enables the use of Vision Transformers while preserving the spatial structure of cortical responses. A pretrained CortexMAE encoder produces brain tokens, which are then mapped through two cross-attention branches: one for semantic features and one for low-level image reconstruction. These predictions are then passed to a fine-tuned SDXL-unCLIP image generation model, which takes the predicted low-level image as its initial image and generates the final reconstruction conditioned on the predicted semantic embedding.
+\section{Results}
+\label{sec:results}
 
-Our results show that cortical flatmaps preserve enough information to support brain decoding which corroborate with NeuroPictor's prior work \cite{huo2024neuropictorrefiningfmritoimagereconstruction}. We demonstrate that utilizing pretrained frozen foundation models together with a lightweight trainable bridge is enough to achieveo competitive benchmarks among other decoding frameworks.
 
-\section{Limitations}
-\label{sec:limitations}
-Our work demonstrates that lightweight models designed to bridge representations, when paired with frozen foundation models like cortexMAE and SDXL, are sufficient to achieve competitive evaluations. However, there are several limitations to our work remain, including occasional semantic and low-level image reconstruction errors which are reflected in our failure cases figure (refer to failure case figure here). Additionally, the compute budget for this project restricted training our model for all subjects (subject 2,5, and 7). To address this constraint, we compared our method with others only with subject 1 evaluations. It remains a fact that our model is subject specific. However, we believe CortexDecoder's light weight nature makes it viable to adapt new subjects with relatively cheap training. Lastly, this model expects fMRI as input which requires extensive data pre-processing limiting it's practical use compared to other lightweight brain recording devices such a EEG.
+We evaluate CortexDecoder on the NSD shared1000 test set (the 998 shared images that Subject 1 viewed), which is kept completely separate from the training and validation data to prevent leakage. The metrics compare the reconstructions against the ground truth stimulus images. All approaches detailed here were evaluated on Subject 1. We report PixCorr (Pixel Correlation), SSIM (Structural Similarity Index Measure) \cite{1284395}, AlexNet(2), AlexNet(5) \cite{NIPS2012_c399862d}, InceptionV3 \cite{szegedy2015rethinkinginceptionarchitecturecomputer}, CLIP \cite{radford2021learningtransferablevisualmodels}, EfficientNet-B1 \cite{tan2020efficientnetrethinkingmodelscaling} and SwAV-ResNet50 \cite{caron2021unsupervisedlearningvisualfeatures}. PixCorr and SSIM measure pixel and structural similarity while AlexNet, InceptionV3 and CLIP measure feature-space similarity. These three are reported as two-way identification accuracy, which is the percentage of comparisons in which a reconstruction's features are closer to its own stimulus than to another test image (chance = 50\%). EfficientNet and SwAV report correlation distance, where lower is better. Benchmark metrics from the subjects 2, 5, and 7 are included in the Table \ref{tab:reconstruction_subjects_final} and Table \ref{tab:prior_subjects}.
 
-\section{Future Work}
-\label{sec:future_work}
-In future work, we will extend our experiments from NSD subject 1 to the full four-subject setting used by other papers (subject 1, 2, 5 and 7). This would evaluate whether the observed performance of our pipeline holds up across subjects with differing brain anatomies. These expansions to our work would enable a more direct comparison against prior multi-subject methods and test whether our approach remains competitive at scale.
+We report metrics for both the low-level DIP reconstruction and the final diffusion reconstruction (Fig.~\ref{fig:stacked_triptych}). This allows us to evaluate the contribution of the low-level branch separately from the semantic conditioning. We generate a single diffusion sample per image.
 
-% Another direction is to replace CLIP as the target semantic representation with the embedding space of a more recent model such as SigLIP2 \cite{tschannen2025siglip2multilingualvisionlanguage}. One limitation of our current pipeline is that semantic conditioning on CLIP embeddings comes at the expense of low-level performance. Replacing CLIP with a stronger semantic embedding model such as SigLIP2 could improve visual-semantic alignment and, in turn, performance on both low-level and high-level evaluations. This may require training an SDXL decoder that accepts SigLIP2 embeddings as conditioning inputs.
-
-% \section{Acknowledgements}
-% Special thanks to Luis Ramirez for helpin
-
-\begin{figure}[t]
+\subsection{Reconstruction Benchmarks}
+\begin{figure}[!t]
 \centering
-\includegraphics[width=0.9\columnwidth]{Figures/comparison_boxed_labeled.png}
+\includegraphics[width=0.9\columnwidth]{Figures/comparison_boxed_labeled.jpg}
 \caption{Stimulus, CortexDecoder, MindEye2 and NeuroPictor reconstructions (left to right). Images from COCO \cite{lin2015microsoftcococommonobjects} (CC BY 4.0).}
 \label{fig:comparison}
 \end{figure}
 
+CortexDecoder is competitive with prior methods in capturing low-level and mid-level features in reconstructed images (Table~\ref{tab:reconstruction}). Its SSIM (0.413) and AlexNet(2) and AlexNet(5) scores (98.1\% and 99.1\%) are close to the best methods, reflecting the contribution of the low-level branch. However, it is weaker on semantic metrics, particularly CLIP.
+
+Four of the prior methods in Table~\ref{tab:reconstruction} pretrain on multiple subjects, and NeuroPictor also fine-tunes its fMRI encoder. For a matched comparison, Table~\ref{tab:matched} compares CortexDecoder with NeuroPictor's ablation that trains on Subject 1 only and keeps its pretrained fMRI encoder frozen, the same setting as ours. Under these conditions, CortexDecoder outperforms NeuroPictor on seven of the eight metrics and ties on SwAV, with the largest gains on PixCorr (0.366 vs.\ 0.220) and SSIM (0.413 vs.\ 0.342). NeuroPictor's ablation still trains a control network on its diffusion model, while our generator is frozen. Fig.~\ref{fig:comparison} shows reconstructions from CortexDecoder, MindEye2 and NeuroPictor for the same stimuli.
+
+The results show that introducing semantic conditioning degrades low-level fidelity. The low-level reconstruction on its own scores higher on most low-level metrics (PixCorr, SSIM and AlexNet(5)) than the final reconstruction, where semantic conditioning is introduced in the diffusion stage. We conclude that the final reconstruction, which combines semantic and low-level representations, improves on semantic metrics at the expense of low-level performance.
+
+%-------------------------------------------------------------------------
+\section{Conclusion}
+\label{sec:conclusion}
+We introduce CortexDecoder, an fMRI-to-image reconstruction framework that uses 2D cortical flatmaps as neural representations for visual decoding. By converting cortical flatmaps into patch tokens, CortexDecoder enables the use of Vision Transformers while preserving the spatial structure of cortical responses. A pretrained CortexMAE encoder produces brain tokens, which are then mapped through two cross-attention branches, one for semantic features and one for low-level image reconstruction. These predictions are then passed to a frozen SDXL-unCLIP image generation model, which takes the predicted low-level image as its initial image and generates the final reconstruction conditioned on the predicted semantic embedding.
+
+Our results show that cortical flatmaps preserve enough information to support brain decoding, which corroborates NeuroPictor's prior work \cite{huo2024neuropictorrefiningfmritoimagereconstruction}. We demonstrate that utilizing pretrained frozen foundation models together with two lightweight trainable bridges is enough to achieve competitive benchmarks among other decoding frameworks.
+
+\section{Limitations}
+\label{sec:limitations}
+Our work demonstrates that lightweight models designed to bridge representations, when paired with frozen foundation models like CortexMAE and SDXL, are sufficient to achieve competitive evaluations. However, several limitations remain, including occasional semantic and low-level image reconstruction errors which are shown in Fig.~\ref{fig:failure_cases}. It remains a fact that our model trains on one subject at a time and is  subject specific. However, we believe CortexDecoder's lightweight nature makes it viable to adapt new subjects in a tractable manner due to its relatively inexpensive training process. Lastly, this model expects fMRI as input which requires extensive data pre-processing limiting its practical use compared to other lightweight brain recording devices such as EEG.
+
+
 \bibliography{references}
 
-% Check whether the conference requires a reproducibility checklist to be included in the paper.
-% If so, you can uncomment the following line and ajust the path to include it.
-% \input{ReproducibilityChecklist.tex}
+\appendix
 
-\section{Appendix}
+\section{Ablations}
+\label{app:ablations}
 
-\begin{table*}[t]
-\centering
-\small
-\begin{tabular}{@{}ccccccccc@{}}
-\toprule
-& \multicolumn{4}{c}{Low-Level} & \multicolumn{4}{c}{High-Level} \\
-\cmidrule(lr){2-5}\cmidrule(lr){6-9}
-$\lambda$ & PixCorr$\uparrow$ & SSIM$\uparrow$ & Alex(2)$\uparrow$ & Alex(5)$\uparrow$ & Incep$\uparrow$ & CLIP$\uparrow$ & Eff$\downarrow$ & SwAV$\downarrow$ \\
-\midrule
-0 & 0.372 & 0.415 & 96.7\% & 97.6\% & 92.8\% & 91.3\% & 0.673 & 0.382 \\
-4 & 0.376 & 0.416 & 97.8\% & 98.6\% & 93.4\% & 91.9\% & 0.654 & 0.374 \\
-\textbf{16} & 0.377 & 0.417 & 98.0\% & \textbf{99.0\%} & \textbf{94.9\%} & \textbf{93.2\%} & \textbf{0.640} & \textbf{0.372} \\
-32 & 0.379 & \textbf{0.422} & 98.1\% & \textbf{99.0\%} & 94.6\% & 93.0\% & 0.647 & 0.392 \\
-64 & \textbf{0.380} & 0.421 & \textbf{98.3\%} & \textbf{99.0\%} & 93.8\% & 93.1\% & 0.646 & 0.384 \\
-\bottomrule
-\end{tabular}
-\caption{Weight $\lambda$ of the decoder-aware fine-tuning loss. Final reconstructions on the NSD Subject 1 test set (best of 10 diffusion samples), with the whole-cortex bridges. \textbf{Bold}: best per column.}
-\label{tab:lambda_sweep}
-\end{table*}
-
-
-\begin{table}[h]
-\centering
+\begin{center}
 \small
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{@{}ccccc@{}}
@@ -379,32 +345,175 @@ Blocks & Heads & Params & Val.\ cos & Two-way \\
 12 & 8 & 114.6M & 0.495 & 92.8\% \\
 \bottomrule
 \end{tabular}
-\caption{Semantic bridge size. Token-level results on the test set; validation cosine at the best epoch. Our configuration is in bold.}
+\captionof{table}{Semantic bridge size. Token-level results are on the test set, and validation cosine is taken at the best epoch. Our configuration is in bold.}
 \label{tab:size_sweep}
-\end{table}
+\end{center}
 
+\begin{center}
+\includegraphics[width=\columnwidth]{Figures/size_sweep_valcos_wide.pdf}
+\captionof{figure}{Validation token cosine per epoch for each semantic bridge size in Table~\ref{tab:size_sweep}. Stars mark the best epoch of each run, whose checkpoint is kept.}
+\label{fig:size_curves}
+\end{center}
 
-\begin{table}[h]
+\begin{table*}[t]
 \centering
 \small
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}lccc@{}}
+\begin{tabularx}{\textwidth}{@{}l*{8}{Y}@{}}
 \toprule
-Loss & LR & Val.\ cos & Two-way \\
+& \multicolumn{4}{c}{Low-Level} & \multicolumn{4}{c}{High-Level} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}
+$\boldsymbol{\lambda}$
+& PixCorr$\uparrow$ & SSIM$\uparrow$ & Alex(2)$\uparrow$ & Alex(5)$\uparrow$
+& Incep$\uparrow$ & CLIP$\uparrow$ & Eff$\downarrow$ & SwAV$\downarrow$ \\
 \midrule
-MSE & $10^{-3}$ & 0.496 & 92.8\% \\
-+ 0.1 InfoNCE & $10^{-3}$ & 0.473 & 90.2\% \\
-+ 0.3 InfoNCE & $10^{-3}$ & 0.414 & 90.1\% \\
-+ 0.1 SoftCLIP & $10^{-3}$ & 0.460 & 98.0\% \\
-+ 0.3 SoftCLIP & $10^{-3}$ & 0.415 & 99.0\% \\
-\textbf{MSE} & $\mathbf{5\times10^{-4}}$ & \textbf{0.527} & \textbf{99.7\%} \\
+0 (MSE only) & 0.372 & 0.415 & 96.7\% & 97.6\% & 92.8\% & 91.3\% & 0.673 & 0.382 \\
+4 & 0.376 & 0.416 & 97.8\% & 98.6\% & 93.4\% & 91.9\% & 0.654 & 0.374 \\
+\rowcolor{oursrow}
+\textbf{16 (ours)} & 0.377 & 0.417 & 97.9\% & \textbf{99.0\%} & \textbf{94.9\%} & \textbf{93.2\%} & \textbf{0.640} & \textbf{0.372} \\
+32 & 0.379 & \textbf{0.422} & 98.1\% & \textbf{99.0\%} & 94.6\% & 93.0\% & 0.647 & 0.392 \\
+64 & \textbf{0.380} & 0.421 & \textbf{98.3\%} & \textbf{99.0\%} & 93.8\% & 93.1\% & 0.646 & 0.384 \\
 \bottomrule
-\end{tabular}
-\caption{Auxiliary contrastive losses for the semantic branch. Token-level results on the test set; validation cosine at the best epoch.}
-\label{tab:loss_sweep}
-\end{table}
+\end{tabularx}
+\caption{Weight $\lambda$ of the decoder-aware fine-tuning loss. Final reconstructions on the NSD Subject 1 test set with the whole-cortex bridges and the best of 10 diffusion samples. Bold indicates the best result.}
+\label{tab:lambda_sweep}
+\end{table*}
 
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{Figures/roi_mask_flatmap.png}
+\caption{Visual cortex restriction on the CortexMAE patch grid. The left panel shows a single-trial Subject 1 beta flatmap with all 364 cortical patches. The middle panel shows the fraction of each patch inside NSD's nsdgeneral mask. The right panel shows the same flatmap with only the 50 patches that have at least half their area inside nsdgeneral, which are the only patches visible to the encoder.}
+\label{fig:roi_mask}
+\end{figure*}
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\textwidth}{@{}ll*{8}{Y}@{}}
+\toprule
+& & \multicolumn{4}{c}{Low-Level} & \multicolumn{4}{c}{High-Level} \\
+\cmidrule(lr){3-6}\cmidrule(lr){7-10}
+\textbf{Output} & \textbf{Bridge input}
+& PixCorr$\uparrow$ & SSIM$\uparrow$ & Alex(2)$\uparrow$ & Alex(5)$\uparrow$
+& Incep$\uparrow$ & CLIP$\uparrow$ & Eff$\downarrow$ & SwAV$\downarrow$ \\
+\midrule
+& Whole cortex
+& 0.390 & 0.407 & 97.6\% & 99.2\% & 90.9\% & 76.0\% & 0.845 & 0.580 \\
+\multirow{-2}{*}{DIP image} & ROI
+& 0.394 & 0.414 & 97.8\% & 99.2\% & 91.5\% & 76.8\% & 0.840 & 0.572 \\
+\midrule
+& Whole cortex (both bridges)
+& 0.377 & 0.417 & 97.9\% & 99.0\% & 94.9\% & 93.2\% & 0.640 & 0.372 \\
+& ROI semantic, whole-cortex VGG
+& 0.376 & 0.413 & 98.4\% & 99.1\% & 94.8\% & 93.3\% & 0.630 & 0.363 \\
+\rowcolor{oursrow}
+\cellcolor{white}\multirow{-3}{*}{Final image} & ROI (both bridges, ours)
+& 0.378 & 0.417 & 98.2\% & 99.0\% & 94.4\% & 92.9\% & 0.631 & 0.363 \\
+\bottomrule
+\end{tabularx}
+\caption{Whole-cortex input (1456 tokens) vs.\ visual-cortex ROI input (200 tokens) for each bridge. The DIP image depends only on the VGG bridge. All rows use $\lambda = 16$ and the best of 10 diffusion samples on the NSD Subject 1 test set.}
+\label{tab:roi}
+\end{table*}
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}p{5.2cm}p{1.3cm}cccccccc@{}}
+\toprule
+& & \multicolumn{4}{c}{Low-Level} & \multicolumn{4}{c}{High-Level} \\
+\cmidrule(lr){3-6}\cmidrule(lr){7-10}
+\textbf{Output} & Subject
+& PixCorr$\uparrow$ & SSIM$\uparrow$ & Alex(2)$\uparrow$ & Alex(5)$\uparrow$
+& Incep$\uparrow$ & CLIP$\uparrow$ & Eff$\downarrow$ & SwAV$\downarrow$ \\
+\midrule
+\multirow{6}{*}{Final image} & 1, $\lambda = 16$ & 0.377 & 0.417 & 97.9\% & 99.0\% & 94.9\% & 93.2\% & 0.640 & 0.372 \\
+\cmidrule(l){2-10}
+& 1 & 0.370 & 0.414 & 96.6\% & 97.7\% & 92.5\% & 91.4\% & 0.675 & 0.385 \\
+& 2 & 0.320 & 0.412 & 95.6\% & 96.7\% & 91.7\% & 89.3\% & 0.695 & 0.401 \\
+& 5 & 0.291 & 0.408 & 90.7\% & 95.7\% & 92.5\% & 91.1\% & 0.696 & 0.405 \\
+& 7 & 0.264 & 0.399 & 90.0\% & 94.3\% & 89.0\% & 87.8\% & 0.724 & 0.424 \\
+\cmidrule(l){2-10}
+& Average & 0.311 & 0.408 & 93.2\% & 96.1\% & 91.4\% & 89.9\% & 0.697 & 0.404 \\
+\midrule
+\multirow{5}{*}{DIP image} & 1 & 0.390 & 0.407 & 97.6\% & 99.2\% & 90.9\% & 75.9\% & 0.845 & 0.580 \\
+& 2 & 0.334 & 0.408 & 97.7\% & 99.1\% & 90.0\% & 74.5\% & 0.856 & 0.582 \\
+& 5 & 0.296 & 0.393 & 91.0\% & 97.0\% & 90.1\% & 74.7\% & 0.852 & 0.592 \\
+& 7 & 0.263 & 0.362 & 91.3\% & 96.3\% & 88.0\% & 72.2\% & 0.871 & 0.606 \\
+\cmidrule(l){2-10}
+& Average & 0.321 & 0.393 & 94.4\% & 97.9\% & 89.7\% & 74.3\% & 0.856 & 0.590 \\
+\bottomrule
+\end{tabular*}
+\caption{CortexDecoder on Subjects 1, 2, 5 and 7 with the whole-cortex bridges and the best of 10 diffusion samples. The row $\lambda = 16$ adds the decoder-aware fine-tune.}
+\label{tab:reconstruction_subjects_final}
+\end{table*}
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}p{5.2cm}p{1.3cm}cccccccc@{}}
+\toprule
+& & \multicolumn{4}{c}{Low-Level} & \multicolumn{4}{c}{High-Level} \\
+\cmidrule(lr){3-6}\cmidrule(lr){7-10}
+\textbf{Method} & Subject
+& PixCorr$\uparrow$ & SSIM$\uparrow$ & Alex(2)$\uparrow$ & Alex(5)$\uparrow$
+& Incep$\uparrow$ & CLIP$\uparrow$ & Eff$\downarrow$ & SwAV$\downarrow$ \\
+\midrule
+\multirow{6}{*}{MindEye2 \cite{scotti2024mindeye2sharedsubjectmodelsenable}} & 1 & 0.374 & 0.439 & 97.8\% & 99.1\% & 96.2\% & 93.6\% & 0.609 & 0.338 \\
+ & 2 & 0.328 & 0.430 & 97.0\% & 98.8\% & 94.9\% & 91.7\% & 0.631 & 0.347 \\
+ & 5 & 0.301 & 0.432 & 95.3\% & 98.5\% & 96.5\% & 94.3\% & 0.600 & 0.335 \\
+ & 7 & 0.283 & 0.423 & 94.3\% & 98.0\% & 94.1\% & 92.4\% & 0.638 & 0.357 \\
+\cmidrule(l){2-10}
+ & Average & 0.322 & 0.431 & 96.1\% & 98.6\% & 95.4\% & 93.0\% & 0.620 & 0.344 \\
+\midrule
+\multirow{6}{*}{MindTuner \cite{gong2024mindtunercrosssubjectvisualdecoding}} & 1 & 0.371 & 0.428 & 97.7\% & 99.3\% & 96.4\% & 94.3\% & 0.601 & 0.331 \\
+ & 2 & 0.331 & 0.421 & 96.8\% & 99.0\% & 95.1\% & 92.7\% & 0.620 & 0.342 \\
+ & 5 & 0.298 & 0.422 & 94.7\% & 98.7\% & 96.6\% & 94.7\% & 0.592 & 0.333 \\
+ & 7 & 0.288 & 0.414 & 94.1\% & 98.1\% & 94.1\% & 93.3\% & 0.636 & 0.355 \\
+\cmidrule(l){2-10}
+ & Average & 0.322 & 0.421 & 95.8\% & 98.8\% & 95.6\% & 93.8\% & 0.612 & 0.340 \\
+\midrule
+\multirow{6}{*}{NeuralDiffuser \cite{Li_2025}} & 1 & 0.378 & 0.330 & 98.3\% & 99.4\% & 95.8\% & 95.4\% & 0.642 & 0.380 \\
+ & 2 & 0.309 & 0.318 & 96.6\% & 98.7\% & 94.7\% & 95.0\% & 0.670 & 0.404 \\
+ & 5 & 0.261 & 0.315 & 93.7\% & 97.9\% & 96.5\% & 96.9\% & 0.658 & 0.402 \\
+ & 7 & 0.247 & 0.310 & 92.8\% & 97.1\% & 94.6\% & 94.5\% & 0.683 & 0.418 \\
+\cmidrule(l){2-10}
+ & Average & 0.299 & 0.318 & 95.3\% & 98.3\% & 95.4\% & 95.4\% & 0.663 & 0.401 \\
+\midrule
+\multirow{6}{*}{DREAM \cite{xia2024dreamvisualdecodingreversing}} & 1 & 0.288 & 0.338 & 95.0\% & 97.5\% & 94.8\% & 95.2\% & 0.638 & 0.413 \\
+ & 2 & 0.273 & 0.331 & 94.2\% & 97.1\% & 93.4\% & 93.5\% & 0.652 & 0.422 \\
+ & 5 & 0.269 & 0.325 & 93.5\% & 96.6\% & 93.8\% & 94.1\% & 0.633 & 0.397 \\
+ & 7 & 0.265 & 0.319 & 92.7\% & 95.4\% & 92.6\% & 93.7\% & 0.656 & 0.438 \\
+\cmidrule(l){2-10}
+ & Average & 0.274 & 0.328 & 93.9\% & 96.7\% & 93.7\% & 94.1\% & 0.645 & 0.418 \\
+\bottomrule
+\end{tabular*}
+\caption{Per-subject results of prior methods, taken from their papers. Averages are computed from these values and can differ from each paper's own average by rounding.}
+\label{tab:prior_subjects}
+\end{table*}
+
+\begin{figure*}[p]
+\centering
+\includegraphics[height=0.82\textheight,keepaspectratio]{Figures/failure_cases_nohydrant.jpg}
+\caption{Failure cases. Stimulus (left), low-level DIP reconstruction (middle) and final reconstruction (right). In these examples, the low-level image is already wrong. When its layout or colors are off, the final image shows a plausible but wrong object. Images from COCO \cite{lin2015microsoftcococommonobjects} (CC BY 4.0).}
+\label{fig:failure_cases}
+\end{figure*}
+
+\begin{figure*}[p]
+\centering
+\includegraphics[height=0.88\textheight,keepaspectratio]{Figures/recon_grid_subj01.jpg}
+\caption{CortexDecoder reconstructions for NSD Subject 1 test images. Each pair shows the stimulus (left) and the final reconstruction (right). Images from COCO \cite{lin2015microsoftcococommonobjects} (CC BY 4.0).}
+\label{fig:recon_grid}
+\end{figure*}
+
+\begin{figure*}[p]
+\centering
+\includegraphics[height=0.88\textheight,keepaspectratio]{Figures/comparison_grid_subj01.jpg}
+\caption{Stimulus, CortexDecoder, MindEye2 and NeuroPictor reconstructions for NSD Subject 1 test images. MindEye2 and NeuroPictor reconstructions are from their publicly released Subject 1 outputs. Images from COCO \cite{lin2015microsoftcococommonobjects} (CC BY 4.0).}
+\label{fig:comparison_grid}
+\end{figure*}
 
 \end{document}
-
-

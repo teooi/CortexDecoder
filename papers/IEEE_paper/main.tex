@@ -156,23 +156,23 @@ CortexMAE is a spatiotemporal masked autoencoder \cite{he2021maskedautoencoderss
 \label{sec:bridge}
 The bridge maps the sequence of brain tokens to a sequence of visual feature tokens. Like DETR \cite{DBLP:journals/corr/abs-2005-12872}, the bridge uses a set of learned query vectors, with one query per output token. These are randomly initialized and trained jointly with the rest of the model. Each query is responsible for predicting one token of the target visual representation.
 
-The brain tokens serve as memory. They are layer-normalized and projected to the model width when the two dimensions differ. In our case, the CortexMAE embedding dimension and the bridge width are both 768, so no projection is needed. The queries are then passed through a stack of transformer decoder layers. Each layer applies self-attention among the queries, then cross-attention from the queries into the brain memory, and finally a position-wise feed-forward network (FFN). Self-attention lets the queries coordinate with one another so that neighboring output tokens can share information. Cross-attention is where the decoding happens. Each query attends over all 200 brain tokens and pools the ones that carry information about its target feature. A final linear layer projects each decoded query to the dimensionality of the target representation.
+The brain tokens from CortexMAE serve as memory and are layer normalized to stabilize training. The queries are then passed through a stack of transformer decoder layers. Each layer applies self-attention among the queries, then cross-attention from the queries into the brain memory, and finally a position-wise feed-forward network (FFN). Self-attention lets the queries coordinate with one another so that neighboring output tokens can share information. Each query attends over all 200 brain tokens and pools the ones that carry information about its target feature. A final linear layer projects each decoded query to the dimensionality of the target representation.
 
-We use 4 decoder layers and 8 attention heads (see Table~\ref{tab:size_sweep} for other sizes). The model width is 768, with a feed-forward dimension of 3072 and dropout of 0.1. The semantic and low-level branches share these settings.
+We use 4 decoder layers and 8 attention heads, the optimal configuration from our ablations (see Table~\ref{tab:size_sweep} for other sizes). The model width is 768, with a feed-forward dimension of 3072 and dropout of 0.1. The semantic and low-level branches share these settings.
 
 The key property of this design is that the brain representation remains a sequence throughout the pipeline. Each query attends over the full set of brain tokens. A pooled brain vector would make every query attend to the same input and reduce the decoder to a multilayer perceptron (MLP) applied identically at each output position.
 
-We instantiate the bridge twice with one instance per branch and train the two independently rather than sharing a trunk. The semantic branch uses 256 queries and projects to 1664 dimensions. This matches the shape of the unpooled OpenCLIP ViT-bigG/14 \cite{radford2021learningtransferablevisualmodels, ilharco_gabriel_2021_5143773, schuhmann2022laionb} patch tokens that the diffusion decoder expects as conditioning. The low-level branch uses 7190 queries and projects to 512 dimensions. The two branches therefore differ by more than an order of magnitude in output length. They also optimize different losses, since the semantic target is dense and continuous, while the low-level target is better matched by a contrastive objective.
+We instantiate the bridge twice with one instance per branch and train the two independently. The semantic branch uses 256 queries and projects to 1664 dimensions. This matches the shape of the unpooled OpenCLIP ViT-bigG/14 \cite{radford2021learningtransferablevisualmodels, ilharco_gabriel_2021_5143773, schuhmann2022laionb} patch tokens that the diffusion decoder expects as conditioning. The low-level branch uses 7190 queries and projects to 512 dimensions. The two branches therefore differ by more than an order of magnitude in output length. They also optimize different losses, since the semantic target is dense and continuous, while the low-level target is better matched by a contrastive objective.
 
 The semantic branch is trained with the mean squared error between the predicted and target token sequences,
 \begin{equation}
 \mathcal{L}_{\mathrm{CLIP}} = \big\lVert \hat{\mathbf{C}} - \mathbf{C} \big\rVert_2^2,
 \end{equation}
-where $\hat{\mathbf{C}}, \mathbf{C} \in \mathbb{R}^{256 \times 1664}$ are the predicted and target OpenCLIP tokens, and the squared error is averaged over all tokens, dimensions and trials. In our tests, adding an InfoNCE or SoftCLIP term lowered the validation cosine (Table~\ref{tab:loss_sweep}).
+where $\hat{\mathbf{C}}, \mathbf{C} \in \mathbb{R}^{256 \times 1664}$ are the predicted and target OpenCLIP tokens, and the squared error is averaged over all tokens, dimensions and trials.
 
 To train the low-level branch, we extract target tokens from five intermediate layers of a frozen VGG16-BN network (\texttt{relu1\_2} through \texttt{relu5\_3}, totaling $7{,}190$ spatial tokens of dimension $D=512$). For memory efficiency, at each step we randomly sample $\{512, 512, 128, 64, 16\}$ spatial positions from the five layers.
 
-At each sampled position, we use the InfoNCE loss \cite{oord2019representationlearningcontrastivepredictive} as in CLIP \cite{radford2021learningtransferablevisualmodels}. It trains the prediction for each trial to be closer to its own target than to the targets of the other trials in the batch,
+At each sampled position, we use the InfoNCE loss \cite{oord2019representationlearningcontrastivepredictive} as was used in CLIP \cite{radford2021learningtransferablevisualmodels}. It trains the prediction for each trial to be closer to its own target than to the targets of the other trials in the batch,
 \begin{equation}
 \mathcal{L}_{\mathrm{VGG}} = -\log \frac{\exp\big(\cos(\hat{\mathbf{z}}_b, \mathbf{z}_b)/\tau\big)}{\sum_{c} \exp\big(\cos(\hat{\mathbf{z}}_b, \mathbf{z}_c)/\tau\big)},
 \end{equation}
@@ -291,7 +291,7 @@ NeuroPictor (2024), frozen encoder
 \label{tab:matched}
 \end{table*}
 
-We evaluate CortexDecoder on the NSD shared1000 test set (the 998 shared images that Subject 1 viewed), which is kept completely separate from the training and validation data to prevent leakage. All metrics compare reconstructions against the stimulus images viewed by each subject, and we report results for Subject 1. We report PixCorr (Pixel Correlation), SSIM (Structural Similarity Index Measure) \cite{1284395}, AlexNet(2), AlexNet(5) \cite{NIPS2012_c399862d}, InceptionV3 \cite{szegedy2015rethinkinginceptionarchitecturecomputer}, CLIP \cite{radford2021learningtransferablevisualmodels}, EfficientNet-B1 \cite{tan2020efficientnetrethinkingmodelscaling} and SwAV-ResNet50 \cite{caron2021unsupervisedlearningvisualfeatures}. PixCorr and SSIM measure pixel and structural similarity while AlexNet, InceptionV3 and CLIP measure feature-space similarity. These three are reported as two-way identification accuracy, which is the percentage of comparisons in which a reconstruction's features are closer to its own stimulus than to another test image (chance = 50\%). EfficientNet and SwAV report correlation distance, where lower is better.
+We evaluate CortexDecoder on the NSD shared1000 test set (the 998 shared images that Subject 1 viewed), which is kept completely separate from the training and validation data to prevent leakage. The metrics compare the reconstructions against the ground truth stimulus images. All approaches detailed here were evaluated on Subject 1. We report PixCorr (Pixel Correlation), SSIM (Structural Similarity Index Measure) \cite{1284395}, AlexNet(2), AlexNet(5) \cite{NIPS2012_c399862d}, InceptionV3 \cite{szegedy2015rethinkinginceptionarchitecturecomputer}, CLIP \cite{radford2021learningtransferablevisualmodels}, EfficientNet-B1 \cite{tan2020efficientnetrethinkingmodelscaling} and SwAV-ResNet50 \cite{caron2021unsupervisedlearningvisualfeatures}. PixCorr and SSIM measure pixel and structural similarity while AlexNet, InceptionV3 and CLIP measure feature-space similarity. These three are reported as two-way identification accuracy, which is the percentage of comparisons in which a reconstruction's features are closer to its own stimulus than to another test image (chance = 50\%). EfficientNet and SwAV report correlation distance, where lower is better. Benchmark metrics from the subjects 2, 5, and 7 are included in the Table \ref{tab:reconstruction_subjects_final} and Table \ref{tab:prior_subjects}.
 
 We report metrics for both the low-level DIP reconstruction and the final diffusion reconstruction (Fig.~\ref{fig:stacked_triptych}). This allows us to evaluate the contribution of the low-level branch separately from the semantic conditioning. We generate a single diffusion sample per image.
 
@@ -300,7 +300,7 @@ CortexDecoder is competitive with prior methods in capturing low-level and mid-l
 
 Four of the prior methods in Table~\ref{tab:reconstruction} pretrain on multiple subjects, and NeuroPictor also fine-tunes its fMRI encoder. For a matched comparison, Table~\ref{tab:matched} compares CortexDecoder with NeuroPictor's ablation that trains on Subject 1 only and keeps its pretrained fMRI encoder frozen, the same setting as ours. Under these conditions, CortexDecoder outperforms NeuroPictor on seven of the eight metrics and ties on SwAV, with the largest gains on PixCorr (0.366 vs.\ 0.220) and SSIM (0.413 vs.\ 0.342). NeuroPictor's ablation still trains a control network on its diffusion model, while our generator is frozen. Fig.~\ref{fig:comparison} shows reconstructions from CortexDecoder, MindEye2 and NeuroPictor for the same stimuli.
 
-The results show that introducing semantic conditioning degrades low-level fidelity. For example, the low-level reconstruction on its own scores higher on most low-level metrics (PixCorr, SSIM and AlexNet(5)) than the final reconstruction, where semantic conditioning is introduced in the diffusion stage. We conclude that the final reconstruction, which combines semantic and low-level representations, improves on semantic metrics at the expense of low-level performance.
+The results show that introducing semantic conditioning degrades low-level fidelity. The low-level reconstruction on its own scores higher on most low-level metrics (PixCorr, SSIM and AlexNet(5)) than the final reconstruction, where semantic conditioning is introduced in the diffusion stage. We conclude that the final reconstruction, which combines semantic and low-level representations, improves on semantic metrics at the expense of low-level performance.
 
 %-------------------------------------------------------------------------
 \section{Conclusion}
@@ -311,16 +311,7 @@ Our results show that cortical flatmaps preserve enough information to support b
 
 \section{Limitations}
 \label{sec:limitations}
-Our work demonstrates that lightweight models designed to bridge representations, when paired with frozen foundation models like CortexMAE and SDXL, are sufficient to achieve competitive evaluations. However, several limitations remain, including occasional semantic and low-level image reconstruction errors which are shown in Fig.~\ref{fig:failure_cases}. Additionally, the compute budget for this project prevented us from training on the remaining subjects (Subjects 2, 5 and 7). To address this constraint, we compared our method with others only on Subject 1. It remains a fact that our model is subject specific. However, we believe CortexDecoder's lightweight nature makes it viable to adapt new subjects with relatively cheap training. Lastly, this model expects fMRI as input which requires extensive data pre-processing limiting its practical use compared to other lightweight brain recording devices such as EEG.
-
-\section{Future Work}
-\label{sec:future_work}
-In future work, we will extend our experiments from NSD subject 1 to the full four-subject setting used by other papers (subject 1, 2, 5 and 7). This would evaluate whether the observed performance of our pipeline holds up across subjects with differing brain anatomies. These expansions to our work would enable a more direct comparison against prior multi-subject methods and test whether our approach remains competitive at scale.
-
-% Another direction is to replace CLIP as the target semantic representation with the embedding space of a more recent model such as SigLIP2 \cite{tschannen2025siglip2multilingualvisionlanguage}. One limitation of our current pipeline is that semantic conditioning on CLIP embeddings comes at the expense of low-level performance. Replacing CLIP with a stronger semantic embedding model such as SigLIP2 could improve visual-semantic alignment and, in turn, performance on both low-level and high-level evaluations. This may require training an SDXL decoder that accepts SigLIP2 embeddings as conditioning inputs.
-
-% \section*{Acknowledgment}
-% Special thanks to Luis Ramirez for helping
+Our work demonstrates that lightweight models designed to bridge representations, when paired with frozen foundation models like CortexMAE and SDXL, are sufficient to achieve competitive evaluations. However, several limitations remain, including occasional semantic and low-level image reconstruction errors which are shown in Fig.~\ref{fig:failure_cases}. It remains a fact that our model trains on one subject at a time and is  subject specific. However, we believe CortexDecoder's lightweight nature makes it viable to adapt new subjects in a tractable manner due to its relatively inexpensive training process. Lastly, this model expects fMRI as input which requires extensive data pre-processing limiting its practical use compared to other lightweight brain recording devices such as EEG.
 
 \begin{figure}[!t]
 \centering
@@ -328,6 +319,7 @@ In future work, we will extend our experiments from NSD subject 1 to the full fo
 \caption{Stimulus, CortexDecoder, MindEye2 and NeuroPictor reconstructions (left to right). Images from COCO \cite{lin2015microsoftcococommonobjects} (CC BY 4.0).}
 \label{fig:comparison}
 \end{figure}
+
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}
@@ -362,26 +354,6 @@ $\boldsymbol{\lambda}$
 \captionsetup{width=\textwidth}
 \caption{Weight $\lambda$ of the decoder-aware fine-tuning loss. Final reconstructions on the NSD Subject 1 test set with the whole-cortex bridges and the best of 10 diffusion samples. Bold indicates the best result.}
 \label{tab:lambda_sweep}
-\end{table}
-
-\begin{table}[h]
-\centering
-\small
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}lccc@{}}
-\toprule
-Loss & LR & Val.\ cos & Two-way \\
-\midrule
-\textbf{MSE} & $\mathbf{5\times10^{-4}}$ & \textbf{0.527} & \textbf{99.7\%} \\
-MSE & $10^{-3}$ & 0.496 & 92.8\% \\
-+ 0.1 InfoNCE & $10^{-3}$ & 0.473 & 90.2\% \\
-+ 0.3 InfoNCE & $10^{-3}$ & 0.414 & 90.1\% \\
-+ 0.1 SoftCLIP & $10^{-3}$ & 0.460 & 98.0\% \\
-+ 0.3 SoftCLIP & $10^{-3}$ & 0.415 & 99.0\% \\
-\bottomrule
-\end{tabular}
-\caption{Auxiliary contrastive losses for the semantic branch. Token-level results are on the test set, and validation cosine is taken at the best epoch.}
-\label{tab:loss_sweep}
 \end{table}
 
 \begin{figure}[h]
@@ -424,7 +396,7 @@ Blocks & Heads & Params & Val.\ cos & Two-way \\
 \begin{figure}[p]
 \centering
 \includegraphics[width=\textwidth]{images/roi_mask_flatmap.png}
-\captionof{figure}{Visual-cortex restriction on the CortexMAE patch grid. The left panel shows a single-trial Subject 1 beta flatmap with all 364 cortical patches. The middle panel shows the fraction of each patch inside NSD's nsdgeneral mask. The right panel shows the same flatmap with only the 50 patches that have at least half their area inside nsdgeneral, which are the only patches visible to the encoder.}
+\captionof{figure}{Visual cortex restriction on the CortexMAE patch grid. The left panel shows a single-trial Subject 1 beta flatmap with all 364 cortical patches. The middle panel shows the fraction of each patch inside NSD's nsdgeneral mask. The right panel shows the same flatmap with only the 50 patches that have at least half their area inside nsdgeneral, which are the only patches visible to the encoder.}
 \label{fig:roi_mask}
 
 \vspace{2em}
@@ -440,29 +412,99 @@ Blocks & Heads & Params & Val.\ cos & Two-way \\
 & Incep$\uparrow$ & CLIP$\uparrow$ & Eff$\downarrow$ & SwAV$\downarrow$ \\
 \midrule
 & Whole cortex
-& 0.390 & 0.407 & 97.6\% & \textbf{99.2\%} & 90.9\% & 76.0\% & 0.845 & 0.580 \\
+& 0.390 & 0.407 & 97.6\% & 99.2\% & 90.9\% & 76.0\% & 0.845 & 0.580 \\
 \multirow{-2}{*}{DIP image} & ROI
-& \textbf{0.394} & \textbf{0.414} & \textbf{97.8\%} & \textbf{99.2\%} & \textbf{91.5\%} & \textbf{76.8\%} & \textbf{0.840} & \textbf{0.572} \\
+& 0.394 & 0.414 & 97.8\% & 99.2\% & 91.5\% & 76.8\% & 0.840 & 0.572 \\
 \midrule
 & Whole cortex (both bridges)
-& 0.377 & \textbf{0.417} & 97.9\% & 99.0\% & \textbf{94.9\%} & 93.2\% & 0.640 & 0.372 \\
+& 0.377 & 0.417 & 97.9\% & 99.0\% & 94.9\% & 93.2\% & 0.640 & 0.372 \\
 & ROI semantic, whole-cortex VGG
-& 0.376 & 0.413 & \textbf{98.4\%} & \textbf{99.1\%} & 94.8\% & \textbf{93.3\%} & \textbf{0.630} & \textbf{0.363} \\
+& 0.376 & 0.413 & 98.4\% & 99.1\% & 94.8\% & 93.3\% & 0.630 & 0.363 \\
 \rowcolor{oursrow}
-\cellcolor{white}\multirow{-3}{*}{Final image} & \textbf{ROI (both bridges, ours)}
-& \textbf{0.378} & \textbf{0.417} & 98.2\% & 99.0\% & 94.4\% & 92.9\% & 0.631 & \textbf{0.363} \\
+\cellcolor{white}\multirow{-3}{*}{Final image} & ROI (both bridges, ours)
+& 0.378 & 0.417 & 98.2\% & 99.0\% & 94.4\% & 92.9\% & 0.631 & 0.363 \\
 \bottomrule
 \end{tabularx}
 \captionsetup[table]{width=\textwidth}
-\captionof{table}{Whole-cortex input (1456 tokens) vs.\ visual-cortex ROI input (200 tokens) for each bridge. The DIP image depends only on the VGG bridge. All rows use $\lambda = 16$ and the best of 10 diffusion samples on the NSD Subject 1 test set. Bold indicates the best result within each block.}
+\captionof{table}{Whole-cortex input (1456 tokens) vs.\ visual-cortex ROI input (200 tokens) for each bridge. The DIP image depends only on the VGG bridge. All rows use $\lambda = 16$ and the best of 10 diffusion samples on the NSD Subject 1 test set.}
 \label{tab:roi}
 \end{figure}
 
+\clearpage
+\begin{table}[p]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\captionsetup{width=\textwidth}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}p{2.7cm}p{1.4cm}cccccccc@{}}
+\toprule
+& & \multicolumn{4}{c}{Low-Level} & \multicolumn{4}{c}{High-Level} \\
+\cmidrule(lr){3-6}\cmidrule(lr){7-10}
+\textbf{Output} & Subject
+& PixCorr$\uparrow$ & SSIM$\uparrow$ & Alex(2)$\uparrow$ & Alex(5)$\uparrow$
+& Incep$\uparrow$ & CLIP$\uparrow$ & Eff$\downarrow$ & SwAV$\downarrow$ \\
+\midrule
+\multirow{6}{*}{Final image} & 1, $\lambda = 16$ & 0.377 & 0.417 & 97.9\% & 99.0\% & 94.9\% & 93.2\% & 0.640 & 0.372 \\
+\cmidrule(l){2-10}
+& 1 & 0.370 & 0.414 & 96.6\% & 97.7\% & 92.5\% & 91.4\% & 0.675 & 0.385 \\
+& 2 & 0.320 & 0.412 & 95.6\% & 96.7\% & 91.7\% & 89.3\% & 0.695 & 0.401 \\
+& 5 & 0.291 & 0.408 & 90.7\% & 95.7\% & 92.5\% & 91.1\% & 0.696 & 0.405 \\
+& 7 & 0.264 & 0.399 & 90.0\% & 94.3\% & 89.0\% & 87.8\% & 0.724 & 0.424 \\
+\cmidrule(l){2-10}
+& Average & 0.311 & 0.408 & 93.2\% & 96.1\% & 91.4\% & 89.9\% & 0.697 & 0.404 \\
+\midrule
+\multirow{5}{*}{DIP image} & 1 & 0.390 & 0.407 & 97.6\% & 99.2\% & 90.9\% & 75.9\% & 0.845 & 0.580 \\
+& 2 & 0.334 & 0.408 & 97.7\% & 99.1\% & 90.0\% & 74.5\% & 0.856 & 0.582 \\
+& 5 & 0.296 & 0.393 & 91.0\% & 97.0\% & 90.1\% & 74.7\% & 0.852 & 0.592 \\
+& 7 & 0.263 & 0.362 & 91.3\% & 96.3\% & 88.0\% & 72.2\% & 0.871 & 0.606 \\
+\cmidrule(l){2-10}
+& Average & 0.321 & 0.393 & 94.4\% & 97.9\% & 89.7\% & 74.3\% & 0.856 & 0.590 \\
+\bottomrule
+\end{tabular*}
+\caption{CortexDecoder on Subjects 1, 2, 5 and 7 with the whole-cortex bridges and the best of 10 diffusion samples. The row $\lambda = 16$ adds the decoder-aware fine-tune.}
+\label{tab:reconstruction_subjects_final}
 
-
-
-
-
+\vspace{2.5em}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}p{2.7cm}p{1.4cm}cccccccc@{}}
+\toprule
+& & \multicolumn{4}{c}{Low-Level} & \multicolumn{4}{c}{High-Level} \\
+\cmidrule(lr){3-6}\cmidrule(lr){7-10}
+\textbf{Method} & Subject
+& PixCorr$\uparrow$ & SSIM$\uparrow$ & Alex(2)$\uparrow$ & Alex(5)$\uparrow$
+& Incep$\uparrow$ & CLIP$\uparrow$ & Eff$\downarrow$ & SwAV$\downarrow$ \\
+\midrule
+\multirow{6}{*}{MindEye2 \cite{scotti2024mindeye2sharedsubjectmodelsenable}} & 1 & 0.374 & 0.439 & 97.8\% & 99.1\% & 96.2\% & 93.6\% & 0.609 & 0.338 \\
+ & 2 & 0.328 & 0.430 & 97.0\% & 98.8\% & 94.9\% & 91.7\% & 0.631 & 0.347 \\
+ & 5 & 0.301 & 0.432 & 95.3\% & 98.5\% & 96.5\% & 94.3\% & 0.600 & 0.335 \\
+ & 7 & 0.283 & 0.423 & 94.3\% & 98.0\% & 94.1\% & 92.4\% & 0.638 & 0.357 \\
+\cmidrule(l){2-10}
+ & Average & 0.322 & 0.431 & 96.1\% & 98.6\% & 95.4\% & 93.0\% & 0.620 & 0.344 \\
+\midrule
+\multirow{6}{*}{MindTuner \cite{gong2024mindtunercrosssubjectvisualdecoding}} & 1 & 0.371 & 0.428 & 97.7\% & 99.3\% & 96.4\% & 94.3\% & 0.601 & 0.331 \\
+ & 2 & 0.331 & 0.421 & 96.8\% & 99.0\% & 95.1\% & 92.7\% & 0.620 & 0.342 \\
+ & 5 & 0.298 & 0.422 & 94.7\% & 98.7\% & 96.6\% & 94.7\% & 0.592 & 0.333 \\
+ & 7 & 0.288 & 0.414 & 94.1\% & 98.1\% & 94.1\% & 93.3\% & 0.636 & 0.355 \\
+\cmidrule(l){2-10}
+ & Average & 0.322 & 0.421 & 95.8\% & 98.8\% & 95.6\% & 93.8\% & 0.612 & 0.340 \\
+\midrule
+\multirow{6}{*}{NeuralDiffuser \cite{Li_2025}} & 1 & 0.378 & 0.330 & 98.3\% & 99.4\% & 95.8\% & 95.4\% & 0.642 & 0.380 \\
+ & 2 & 0.309 & 0.318 & 96.6\% & 98.7\% & 94.7\% & 95.0\% & 0.670 & 0.404 \\
+ & 5 & 0.261 & 0.315 & 93.7\% & 97.9\% & 96.5\% & 96.9\% & 0.658 & 0.402 \\
+ & 7 & 0.247 & 0.310 & 92.8\% & 97.1\% & 94.6\% & 94.5\% & 0.683 & 0.418 \\
+\cmidrule(l){2-10}
+ & Average & 0.299 & 0.318 & 95.3\% & 98.3\% & 95.4\% & 95.4\% & 0.663 & 0.401 \\
+\midrule
+\multirow{6}{*}{DREAM \cite{xia2024dreamvisualdecodingreversing}} & 1 & 0.288 & 0.338 & 95.0\% & 97.5\% & 94.8\% & 95.2\% & 0.638 & 0.413 \\
+ & 2 & 0.273 & 0.331 & 94.2\% & 97.1\% & 93.4\% & 93.5\% & 0.652 & 0.422 \\
+ & 5 & 0.269 & 0.325 & 93.5\% & 96.6\% & 93.8\% & 94.1\% & 0.633 & 0.397 \\
+ & 7 & 0.265 & 0.319 & 92.7\% & 95.4\% & 92.6\% & 93.7\% & 0.656 & 0.438 \\
+\cmidrule(l){2-10}
+ & Average & 0.274 & 0.328 & 93.9\% & 96.7\% & 93.7\% & 94.1\% & 0.645 & 0.418 \\
+\bottomrule
+\end{tabular*}
+\caption{Per-subject results of prior methods, taken from their papers. Averages are computed from these values and can differ from each paper's own average by rounding.}
+\label{tab:prior_subjects}
+\end{table}
 
 
 \begin{figure}[p]
