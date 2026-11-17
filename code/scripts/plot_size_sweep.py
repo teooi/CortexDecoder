@@ -19,8 +19,8 @@ RUNS = [
     ("hist_L-2", "2 blocks, 8 heads (20.4M)", "#7FB0DC", "#D6E8F7", "-", "o"),
     ("hist_base", "4 blocks, 8 heads (39.3M)", "#2F6FA8", "#AED2EF", "-", "o"),
     ("hist_H-16", "4 blocks, 16 heads (39.3M)", "#C9741F", "#F9C784", "--", "^"),
-    ("hist_L-8", "8 blocks, 8 heads (77.0M)", "#1E4D78", "#7FB0DC", "-", "s"),
-    ("hist_L-12", "12 blocks, 8 heads (114.6M)", "#0F2C47", "#5B8DBA", (0, (4, 1.5, 1, 1.5)), "D"),
+    ("hist_L-8", "8 blocks, 8 heads (77.1M)", "#1E4D78", "#7FB0DC", "-", "s"),
+    ("hist_L-12", "12 blocks, 8 heads (114.9M)", "#0F2C47", "#5B8DBA", (0, (4, 1.5, 1, 1.5)), "D"),
 ]
 
 
