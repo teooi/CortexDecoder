@@ -128,7 +128,8 @@ We propose CortexDecoder, a reconstruction framework for cortical flatmap decodi
 \multirow{-5}{*}{Voxels} & NeuralDiffuser \cite{Li_2025} & 2.97B \\
 \midrule
 & NeuroPictor \cite{huo2024neuropictorrefiningfmritoimagereconstruction} & 0.676B \\
-\multirow{-2}{*}{Flatmap} & \textbf{CortexDecoder (ours)} & \textbf{0.083B} \\
+\rowcolor{oursrow}
+\cellcolor{white}\multirow{-2}{*}{Flatmap} & \textbf{CortexDecoder (ours)} & \textbf{0.083B} \\
 \bottomrule
 \end{tabular}
 \caption{Trained parameters of each method's Subject 1 model, excluding frozen pretrained components. Counts are taken from released weights or from each paper.}
@@ -363,6 +364,8 @@ Our work demonstrates that lightweight models designed to bridge representations
 
 \centering
 \vspace{1em}
+\begin{minipage}{0.48\textwidth}
+\centering
 {\small
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{@{}ccccc@{}}
@@ -376,13 +379,14 @@ Blocks & Heads & Params & Val.\ cos & Two-way \\
 12 & 8 & 114.9M & 0.495 & 92.8\% \\
 \bottomrule
 \end{tabular}}
-\caption{Semantic bridge size. Token-level results are on the test set, and validation cosine is taken at the best epoch. Our configuration is in bold.}
+\captionof{table}{Semantic bridge size. Token-level results are on the test set, and validation cosine is taken at the best epoch. Our configuration is in bold.}
 \label{tab:size_sweep}
 
 \vspace{1.5em}
-\includegraphics[width=0.48\textwidth]{Figures/size_sweep_valcos.pdf}
+\includegraphics[width=\textwidth]{Figures/size_sweep_valcos.pdf}
 \captionof{figure}{Validation token cosine per epoch for each semantic bridge size in Table~\ref{tab:size_sweep}. Stars mark the best epoch of each run, whose checkpoint is kept.}
 \label{fig:size_curves}
+\end{minipage}
 \end{table*}
 
 \begin{table*}[tp]
