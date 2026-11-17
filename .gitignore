@@ -1,80 +1,71 @@
-# old WACV version of the paper
-papers/wacv_paper/
-
-# IEEE camera-ready: pre-migration backups stay local
-papers/IEEE_paper/*_pre_migration.*
-
-# poster sources and exports (kept locally)
+# ---- Local-only folders ----------------------------------------------------
+# planning notes, third-party reference code, unused analyses
+.plans/
+code/extra/
+/extra/
+code/scripts/exploration/
+# poster, old WACV paper, untouched AAAI author kit and its Word templates
 poster/
 papers/poster/
+papers/wacv_paper/
+papers/AAAI_paper/
+papers/**/Word/
+# unused figures and pre-migration backups
+papers/AAAI_workshop_paper/Figures/unused/
+papers/IEEE_paper/*_pre_migration.*
 
-# raster images are kept locally, not in git (figure PDFs are still tracked)
+# ---- Images ----------------------------------------------------------------
+# PNGs stay local (large exports). Only the PNG figures the papers use are tracked.
 *.png
 *.PNG
-# ...except the PNG figures the IEEE paper uses (its other figures are JPGs)
 !papers/IEEE_paper/images/architecture.png
 !papers/IEEE_paper/images/bridge.png
 !papers/IEEE_paper/images/dip.png
 !papers/IEEE_paper/images/roi_mask_flatmap.png
+!papers/AAAI_workshop_paper/Figures/architecture.png
+!papers/AAAI_workshop_paper/Figures/bridge.png
+!papers/AAAI_workshop_paper/Figures/dip.png
+!papers/AAAI_workshop_paper/Figures/roi_mask_flatmap.png
 
-# pristine AAAI author kit (the paper lives in papers/AAAI_workshop_paper/)
-papers/AAAI_paper/
+# ---- PDFs ------------------------------------------------------------------
+# Compiled papers are build output. Figure PDFs are sources.
+*.pdf
+!papers/**/Figures/*.pdf
+!papers/IEEE_paper/images/size_sweep_valcos_wide.pdf
 
-# third-party reference code, papers and examples (not part of this project)
-code/extra/
-/extra/
+# ---- LaTeX build files -----------------------------------------------------
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.brf
+*.fdb_latexmk
+*.fls
+*.lof
+*.log
+*.lot
+*.nav
+*.out
+*.run.xml
+*.snm
+*.synctex.gz
+*.toc
+*.xdv
 
-# local planning notes and specs
-.plans/
-
-# exploratory analyses and figures not used in the paper (kept locally)
-code/scripts/exploration/
-papers/AAAI_workshop_paper/Figures/unused/
-
-# editor / assistant local state
-.vscode/
-.idea/
-.claude/
-
-# python
+# ---- Python ----------------------------------------------------------------
 __pycache__/
 *.pyc
 .venv/
 .ipynb_checkpoints/
 
-# secrets (Modal / HF tokens)
+# ---- Secrets (Modal / Hugging Face tokens) ---------------------------------
 .env
 
-# archives / backups
-*.zip
-# macOS Finder duplicates, e.g. "DIP3 2.png"
-* [0-9].*
-
-# AAAI author-kit Word templates (paper is written in LaTeX)
-papers/**/Word/
-
-# latex build artifacts
-*.aux
-*.bbl
-*.blg
-*.brf
-*.fdb_latexmk
-*.fls
-*.log
-*.out
-*.synctex.gz
-*.toc
-*.lof
-*.lot
-*.nav
-*.snm
-*.bcf
-*.run.xml
-*.xdv
-
-# compiled PDFs are build output, but figure PDFs are paper sources
-*.pdf
-!papers/**/Figures/*.pdf
-!papers/IEEE_paper/images/size_sweep_valcos_wide.pdf
-
+# ---- Editors and OS --------------------------------------------------------
+.claude/
+.vscode/
+.idea/
 .DS_Store
+# Finder duplicates, e.g. "DIP3 2.png"
+* [0-9].*
+*.zip
