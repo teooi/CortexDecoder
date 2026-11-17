@@ -158,7 +158,7 @@ The bridge maps the sequence of brain tokens to a sequence of visual feature tok
 
 The brain tokens from CortexMAE serve as memory and are layer normalized to stabilize training. The queries are then passed through a stack of transformer decoder layers. Each layer applies self-attention among the queries, then cross-attention from the queries into the brain memory, and finally a position-wise feed-forward network (FFN). Self-attention lets the queries coordinate with one another so that neighboring output tokens can share information. Each query attends over all 200 brain tokens and pools the ones that carry information about its target feature. A final linear layer projects each decoded query to the dimensionality of the target representation.
 
-We use 4 decoder layers and 8 attention heads, the optimal configuration from our ablations (see Table~\ref{tab:size_sweep} for other sizes). The model width is 768, with a feed-forward dimension of 3072 and dropout of 0.1. The semantic and low-level branches share these settings.
+We use 4 decoder layers and 8 attention heads, the optimal configuration from our size sweep (see Table~\ref{tab:size_sweep} for other sizes). The model width is 768, with a feed-forward dimension of 3072 and dropout of 0.1. The semantic and low-level branches share these settings.
 
 The key property of this design is that the brain representation remains a sequence throughout the pipeline. Each query attends over the full set of brain tokens. A pooled brain vector would make every query attend to the same input and reduce the decoder to a multilayer perceptron (MLP) applied identically at each output position.
 
@@ -328,7 +328,7 @@ Our work demonstrates that lightweight models designed to bridge representations
 \captionsetup[table]{width=0.62\textwidth}
 \appendices
 
-\section{Ablations}
+\section{Ablations and Hyperparameter Sweeps}
 \label{app:ablations}
 
 \begin{table}[h]
