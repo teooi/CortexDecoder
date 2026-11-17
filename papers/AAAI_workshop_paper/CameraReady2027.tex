@@ -221,6 +221,13 @@ MSE weighs every token dimension equally, but the frozen decoder is more sensiti
 \label{fig:dip_reconstruction}
 \end{figure}
 
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.75\columnwidth]{Figures/stacked_triptych_collage4.jpg}
+\caption{Stimulus (left), low-level DIP reconstruction (middle) and final diffusion reconstruction (right). Images from COCO \cite{lin2015microsoftcococommonobjects} (CC BY 4.0).}
+\label{fig:stacked_triptych}
+\end{figure}
+
 \subsection{Low-Level Branch}
 \label{sec:low_level}
 From the predicted VGG feature representation, we reconstruct a low-level image through Deep Image Prior (DIP) inversion. The VGG representation consists of the stacked outputs of five convolutional layers of the VGG16-BN image model.
@@ -306,19 +313,16 @@ To generate the final image reconstruction, we combine the image capturing low-l
 
 We first add Gaussian noise to the low-level image to partially corrupt fine detail while preserving coarse layout and color. This re-noised image becomes the initial state for SDXL-unCLIP, anchoring the image structure. The predicted OpenCLIP token representation then steers the denoising process toward the correct semantic context, turning the blurry low-level reconstruction into a detailed final image. With this approach, the reconstruction should reflect both the content and the structure of the stimulus.
 
-\begin{figure}[!t]
-\centering
-\includegraphics[width=0.75\columnwidth]{Figures/stacked_triptych_collage4.jpg}
-\caption{Stimulus (left), low-level DIP reconstruction (middle) and final diffusion reconstruction (right). Images from COCO \cite{lin2015microsoftcococommonobjects} (CC BY 4.0).}
-\label{fig:stacked_triptych}
-\end{figure}
+
 
 %-------------------------------------------------------------------------
 \section{Results}
 \label{sec:results}
 
 
-We evaluate CortexDecoder on the NSD shared1000 test set (the 998 shared images that Subject 1 viewed), which is kept completely separate from the training and validation data to prevent leakage. The metrics compare the reconstructions against the ground truth stimulus images. All approaches detailed here were evaluated on Subject 1. We report PixCorr (Pixel Correlation), SSIM (Structural Similarity Index Measure) \cite{1284395}, AlexNet(2), AlexNet(5) \cite{NIPS2012_c399862d}, InceptionV3 \cite{szegedy2015rethinkinginceptionarchitecturecomputer}, CLIP \cite{radford2021learningtransferablevisualmodels}, EfficientNet-B1 \cite{tan2020efficientnetrethinkingmodelscaling} and SwAV-ResNet50 \cite{caron2021unsupervisedlearningvisualfeatures}. PixCorr and SSIM measure pixel and structural similarity while AlexNet, InceptionV3 and CLIP measure feature-space similarity. These three are reported as two-way identification accuracy, which is the percentage of comparisons in which a reconstruction's features are closer to its own stimulus than to another test image (chance = 50\%). EfficientNet and SwAV report correlation distance, where lower is better. Benchmark metrics from the subjects 2, 5, and 7 are included in the Table \ref{tab:reconstruction_subjects_final} and Table \ref{tab:prior_subjects}.
+
+
+We evaluate CortexDecoder on the NSD shared1000 test set (the 998 shared images that Subject 1 viewed), which is kept separate from the training and validation data to prevent leakage. The metrics compare the reconstructions against the ground truth stimulus images. All approaches detailed here were evaluated on Subject 1. We report PixCorr (Pixel Correlation), SSIM (Structural Similarity Index Measure) \cite{1284395}, AlexNet(2), AlexNet(5) \cite{NIPS2012_c399862d}, InceptionV3 \cite{szegedy2015rethinkinginceptionarchitecturecomputer}, CLIP \cite{radford2021learningtransferablevisualmodels}, EfficientNet-B1 \cite{tan2020efficientnetrethinkingmodelscaling} and SwAV-ResNet50 \cite{caron2021unsupervisedlearningvisualfeatures}. PixCorr and SSIM measure pixel and structural similarity while AlexNet, InceptionV3 and CLIP measure feature-space similarity. These three are reported as two-way identification accuracy, which is the percentage of comparisons in which a reconstruction's features are closer to its own stimulus than to another test image (chance = 50\%). EfficientNet and SwAV report correlation distance, where lower is better. Benchmark metrics from the subjects 2, 5, and 7 are included in the Table \ref{tab:reconstruction_subjects_final} and Table \ref{tab:prior_subjects}.
 
 We report metrics for both the low-level DIP reconstruction and the final diffusion reconstruction (Fig.~\ref{fig:stacked_triptych}). This allows us to evaluate the contribution of the low-level branch separately from the semantic conditioning. We generate a single diffusion sample per image.
 
@@ -329,6 +333,7 @@ We report metrics for both the low-level DIP reconstruction and the final diffus
 \caption{Stimulus, CortexDecoder, MindEye2 and NeuroPictor reconstructions (left to right). Images from COCO \cite{lin2015microsoftcococommonobjects} (CC BY 4.0).}
 \label{fig:comparison}
 \end{figure}
+
 
 CortexDecoder is competitive with prior methods in capturing low-level and mid-level features in reconstructed images (Table~\ref{tab:reconstruction}). Its SSIM (0.413) and AlexNet(2) and AlexNet(5) scores (98.1\% and 99.1\%) are close to the best methods, reflecting the contribution of the low-level branch. However, it is weaker on semantic metrics, particularly CLIP.
 
@@ -352,11 +357,13 @@ Our work demonstrates that lightweight models designed to bridge representations
 
 \appendix
 
+\begin{table*}[tp]
 \section{Ablations}
 \label{app:ablations}
 
-\begin{center}
-\small
+\centering
+\vspace{1em}
+{\small
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{@{}ccccc@{}}
 \toprule
@@ -368,18 +375,17 @@ Blocks & Heads & Params & Val.\ cos & Two-way \\
 8 & 8 & 77.1M & 0.495 & 93.2\% \\
 12 & 8 & 114.9M & 0.495 & 92.8\% \\
 \bottomrule
-\end{tabular}
-\captionof{table}{Semantic bridge size. Token-level results are on the test set, and validation cosine is taken at the best epoch. Our configuration is in bold.}
+\end{tabular}}
+\caption{Semantic bridge size. Token-level results are on the test set, and validation cosine is taken at the best epoch. Our configuration is in bold.}
 \label{tab:size_sweep}
-\end{center}
 
-\begin{center}
-\includegraphics[width=\columnwidth]{Figures/size_sweep_valcos_wide.pdf}
+\vspace{1.5em}
+\includegraphics[width=0.48\textwidth]{Figures/size_sweep_valcos.pdf}
 \captionof{figure}{Validation token cosine per epoch for each semantic bridge size in Table~\ref{tab:size_sweep}. Stars mark the best epoch of each run, whose checkpoint is kept.}
 \label{fig:size_curves}
-\end{center}
+\end{table*}
 
-\begin{table*}[t]
+\begin{table*}[tp]
 \centering
 \small
 \setlength{\tabcolsep}{3pt}
@@ -404,15 +410,14 @@ $\boldsymbol{\lambda}$
 \end{table*}
 
 
-\begin{figure*}[t]
+\begin{table*}[p]
+\begin{minipage}[c][0.9\textheight][c]{\textwidth}
 \centering
 \includegraphics[width=\textwidth]{Figures/roi_mask_flatmap.png}
-\caption{Visual cortex restriction on the CortexMAE patch grid. The left panel shows a single-trial Subject 1 beta flatmap with all 364 cortical patches. The middle panel shows the fraction of each patch inside NSD's nsdgeneral mask. The right panel shows the same flatmap with only the 50 patches that have at least half their area inside nsdgeneral, which are the only patches visible to the encoder.}
+\captionof{figure}{Visual cortex restriction on the CortexMAE patch grid. The left panel shows a single-trial Subject 1 beta flatmap with all 364 cortical patches. The middle panel shows the fraction of each patch inside NSD's nsdgeneral mask. The right panel shows the same flatmap with only the 50 patches that have at least half their area inside nsdgeneral, which are the only patches visible to the encoder.}
 \label{fig:roi_mask}
-\end{figure*}
 
-\begin{table*}[t]
-\centering
+\vspace{3em}
 \small
 \setlength{\tabcolsep}{3pt}
 \begin{tabularx}{\textwidth}{@{}ll*{8}{Y}@{}}
@@ -437,11 +442,15 @@ $\boldsymbol{\lambda}$
 & 0.378 & 0.417 & 98.2\% & 99.0\% & 94.4\% & 92.9\% & 0.631 & 0.363 \\
 \bottomrule
 \end{tabularx}
-\caption{Whole-cortex input (1456 tokens) vs.\ visual-cortex ROI input (200 tokens) for each bridge. The DIP image depends only on the VGG bridge. All rows use $\lambda = 16$ and the best of 10 diffusion samples on the NSD Subject 1 test set.}
+\captionof{table}{Whole-cortex input (1456 tokens) vs.\ visual-cortex ROI input (200 tokens) for each bridge. The DIP image depends only on the VGG bridge. All rows use $\lambda = 16$ and the best of 10 diffusion samples on the NSD Subject 1 test set.}
 \label{tab:roi}
+\end{minipage}
 \end{table*}
 
-\begin{table*}[t]
+\begin{table*}[tp]
+\section{Results for All Subjects}
+\label{app:subjects}
+\vspace{1em}
 \centering
 \small
 \setlength{\tabcolsep}{3pt}
@@ -472,12 +481,8 @@ $\boldsymbol{\lambda}$
 \end{tabular*}
 \caption{CortexDecoder on Subjects 1, 2, 5 and 7 with the whole-cortex bridges and the best of 10 diffusion samples. The row $\lambda = 16$ adds the decoder-aware fine-tune.}
 \label{tab:reconstruction_subjects_final}
-\end{table*}
 
-\begin{table*}[t]
-\centering
-\small
-\setlength{\tabcolsep}{3pt}
+\vspace{2em}
 \begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}p{5.2cm}p{1.3cm}cccccccc@{}}
 \toprule
 & & \multicolumn{4}{c}{Low-Level} & \multicolumn{4}{c}{High-Level} \\
@@ -520,8 +525,11 @@ $\boldsymbol{\lambda}$
 \end{table*}
 
 \begin{figure*}[p]
+\section{Additional Reconstructions}
+\label{app:reconstructions}
+\vspace{0.5em}
 \centering
-\includegraphics[height=0.82\textheight,keepaspectratio]{Figures/failure_cases_nohydrant.jpg}
+\includegraphics[height=0.76\textheight,keepaspectratio]{Figures/failure_cases_nohydrant.jpg}
 \caption{Failure cases. Stimulus (left), low-level DIP reconstruction (middle) and final reconstruction (right). In these examples, the low-level image is already wrong. When its layout or colors are off, the final image shows a plausible but wrong object. Images from COCO \cite{lin2015microsoftcococommonobjects} (CC BY 4.0).}
 \label{fig:failure_cases}
 \end{figure*}
