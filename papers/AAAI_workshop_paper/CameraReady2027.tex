@@ -1,5 +1,5 @@
 \documentclass[letterpaper]{article} % DO NOT CHANGE THIS
-\usepackage{aaai2027}  % DO NOT CHANGE THIS
+\usepackage[submission]{aaai2027}  % DO NOT CHANGE THIS
 % The serif, sans-serif, and monospaced fonts are loaded automatically by
 % aaai2027.sty (newtxtext, helvet, courier). DO NOT add \usepackage{times},
 % \usepackage{helvet}, \usepackage{courier}, or any other font package.
@@ -138,7 +138,7 @@ We propose CortexDecoder, a reconstruction framework for cortical flatmap decodi
 
 
 \subsection{fMRI-to-Image Reconstruction}
-Recent methods for fMRI-to-image reconstruction use fMRI data to predict the output embeddings of pretrained vision encoders such as CLIP. These output embeddings are then used to generate images with pretrained diffusion models. Notably, MindEye \cite{scotti2023reconstructingmindseyefmritoimage} predicts CLIP embeddings from fMRI data and uses diffusion-based image generation to reconstruct seen images, while Brain-Diffuser \cite{ozcelik2023brain} combines visual representations with latent diffusion. MindEye2 further improves reconstruction through shared-subject training and predicts OpenCLIP ViT-bigG/14 representations \cite{schuhmann2022laionb, ilharco_gabriel_2021_5143773} for SDXL-based image generation. DREAM \cite{xia2024dreamvisualdecodingreversing} decodes semantics, color and depth cues by reversing the pathways of the human visual system. MindTuner \cite{gong2024mindtunercrosssubjectvisualdecoding} adapts a multi-subject model to a new subject with lightweight fine-tuning, and NeuralDiffuser \cite{Li_2025} adds guidance from primary visual features to the diffusion process. Brain-IT \cite{beliy2025brainitimagereconstructionfmri} maps brain features to image features with a transformer that uses learned queries, a design our bridges follow. Overall, these approaches demonstrate the importance of pretrained generative models for fMRI-to-image reconstruction. NeuroPictor \cite{huo2024neuropictorrefiningfmritoimagereconstruction} uses cortical flatmaps as input. It fine-tunes its pretrained fMRI encoder on NSD and trains a control network on its diffusion model. Our work asks whether these steps are necessary. Namely, if a frozen cortical encoder paired with a frozen image generator is sufficient for competitive reconstruction.
+Recent methods for fMRI-to-image reconstruction use fMRI data to predict the output embeddings of pretrained vision encoders such as CLIP. These output embeddings are then used to generate images with pretrained diffusion models. Notably, MindEye \cite{scotti2023reconstructingmindseyefmritoimage} predicts CLIP embeddings from fMRI data and uses diffusion-based image generation to reconstruct seen images, while Brain-Diffuser \cite{ozcelik2023brain} combines visual representations with latent diffusion. MindEye2 further improves reconstruction through shared-subject training and predicts OpenCLIP ViT-bigG/14 representations \cite{schuhmann2022laionb, ilharco_gabriel_2021_5143773} for SDXL-based image generation. DREAM \cite{xia2024dreamvisualdecodingreversing} decodes semantics, color and depth cues by reversing the pathways of the human visual system. MindTuner \cite{gong2024mindtunercrosssubjectvisualdecoding} adapts a multi-subject model to a new subject with lightweight fine-tuning, and NeuralDiffuser \cite{Li_2025} adds guidance from primary visual features to the diffusion process. Brain-IT \cite{beliy2025brainitimagereconstructionfmri} maps brain features to image features with a transformer that uses learned queries, a design our bridges follow. Overall, these approaches demonstrate the importance of pretrained generative models for fMRI-to-image reconstruction. NeuroPictor \cite{huo2024neuropictorrefiningfmritoimagereconstruction} uses cortical flatmaps as input. It fine-tunes its pretrained fMRI encoder on NSD and trains a control network on its diffusion model. Our work asks whether these steps are necessary; namely, if a frozen cortical encoder paired with a frozen image generator is sufficient for competitive reconstruction.
 
 \subsection{fMRI Representations}
 The core consideration when developing generalizable neural representations is how fMRI activity is represented. Traditional approaches reduce fMRI volumes masked with anatomical regions of interest (ROIs), producing compact feature vectors at the expense of spatial information. On the other hand, volumetric representations retain spatial structure but at a substantially greater computational cost. Recent fMRI foundation models have explored self-supervised learning to obtain general-purpose representations from large-scale datasets. For example, BrainLM \cite{Caro2023.09.12.557460} and BrainJEPA \cite{dong2024brainjepabraindynamicsfoundation}, among others, demonstrate the potential of pretrained models for downstream fMRI tasks. CortexMAE \cite{lane2026scalingvisiontransformersfunctional} frames cortical flatmaps as intermediate representations between parcellation and volumetric fMRI, converting cortical activity into 2D maps. This representation benefits from being directly compatible with Vision Transformer architectures. We use a frozen, pretrained CortexMAE encoder to turn each flatmap into a sequence of patch tokens, which our model maps to image features for reconstruction.
@@ -170,7 +170,7 @@ NSD's surface betas are distributed on a fsaverage mesh \cite{FISCHL2012774} (16
 
 The flatmap is divided into non-overlapping $16\times16$ spatial patches, forming a $14\times35$ grid of 490 cells. Since the cortical surface occupies only part of the bounding box, 364 cells contain cortex and the remaining cells are background. CortexMAE uses a validity mask to exclude these background patches, so only 364 cortical patches are embedded.
 
-CortexMAE is a spatiotemporal masked autoencoder \cite{he2021maskedautoencodersscalablevision} pretrained on BOLD time series. In other words, its patch embedding operates over both space and time. In our case, the input is a single-trial beta map, which has no temporal component. To use the pretrained model, we represent each beta map as a static 16-frame clip. Over the whole flatmap, the encoder outputs 1456 tokens of dimension 768 (364 patches $\times$ 4 temporal chunks). We restrict it to visual cortex by making only the 50 patches that lie mostly inside NSD's nsdgeneral mask visible to the encoder, the same way CortexMAE drops masked patches during pretraining. This gives 200 brain tokens per trial.
+CortexMAE is a spatiotemporal masked autoencoder \cite{he2021maskedautoencodersscalablevision} pretrained on BOLD time series. In other words, its patch embedding operates over both space and time. In our case, the input is a single-trial beta map, which has no temporal component. To use the pretrained model, we represent each beta map as a static 16-frame clip. Over the whole flatmap, the encoder outputs 1456 tokens of dimension 768 (364 patches $\times$ 4 temporal chunks). We restrict it to visual cortex by making only 50 patches that lie mostly inside NSD's nsdgeneral mask visible to the encoder, the same way CortexMAE drops masked patches during pretraining. This gives 200 brain tokens per trial.
 
 \begin{figure}[!t]
 \centering
@@ -247,26 +247,26 @@ To convert this representation into the initial image, we optimize a separate DI
 & PixCorr$\uparrow$ & SSIM$\uparrow$ & Alex(2)$\uparrow$ & Alex(5)$\uparrow$
 & Incep$\uparrow$ & CLIP$\uparrow$ & Eff$\downarrow$ & SwAV$\downarrow$ \\
 \midrule
-& Brain-Diffuser \cite{ozcelik2023brain} (2023)
+& Brain-Diffuser \cite{ozcelik2023brain}
 & 0.305 & 0.367 & 96.7\% & 97.4\%
 & 87.8\% & 92.5\% & 0.768 & 0.415 \\
-& MindEye1 \cite{scotti2023reconstructingmindseyefmritoimage} (2023)
+& MindEye1 \cite{scotti2023reconstructingmindseyefmritoimage}
 & \textbf{0.390} & 0.337 & 97.4\% & 98.7\%
 & 94.5\% & 94.6\% & 0.630 & 0.358 \\
-& DREAM \cite{xia2024dreamvisualdecodingreversing} (2024)
+& DREAM \cite{xia2024dreamvisualdecodingreversing}
 & 0.288 & 0.338 & 95.0\% & 97.5\%
 & 94.8\% & \underline{95.2\%} & 0.638 & 0.413 \\
-& MindEye2 \cite{scotti2024mindeye2sharedsubjectmodelsenable} (2024)
+& MindEye2 \cite{scotti2024mindeye2sharedsubjectmodelsenable}
 & 0.374 & \textbf{0.439} & 97.8\% & 99.1\%
 & \underline{96.2\%} & 93.6\% & \underline{0.609} & 0.338 \\
-& MindTuner \cite{gong2024mindtunercrosssubjectvisualdecoding} (2024)
+& MindTuner \cite{gong2024mindtunercrosssubjectvisualdecoding}
 & 0.371 & \underline{0.428} & 97.7\% & \underline{99.3\%}
 & \textbf{96.4\%} & 94.3\% & \textbf{0.601} & \textbf{0.331} \\
-\multirow{-6}{*}{Voxels} & NeuralDiffuser \cite{Li_2025} (2025)
+\multirow{-6}{*}{Voxels} & NeuralDiffuser \cite{Li_2025}
 & \underline{0.378} & 0.330 & \underline{98.3\%} & \textbf{99.4\%}
 & 95.8\% & \textbf{95.4\%} & 0.642 & 0.380 \\
 \midrule
-& NeuroPictor \cite{huo2024neuropictorrefiningfmritoimagereconstruction} (2024)
+& NeuroPictor \cite{huo2024neuropictorrefiningfmritoimagereconstruction}
 & 0.277 & 0.385 & \textbf{98.8\%} & \underline{99.3\%}
 & \underline{96.2\%} & 94.5\% & 0.619 & \underline{0.334} \\
 \rowcolor{oursrow}
@@ -556,7 +556,7 @@ $\boldsymbol{\lambda}$
 \begin{minipage}[t][\textheight][t]{\textwidth}
 \section{Data and Code Availability}
 \label{app:datacode}
-Our dataset is available at \url{https://huggingface.co/datasets/teooi/cortexdecoder-nsd-flatmaps}. Code is available at \url{https://github.com/teooi/CortexDecoder}. All experiments were run on Modal cloud instances with a single NVIDIA H100 (80\,GB) GPU and 64\,GB of system RAM, running Debian Linux with Python 3.11, PyTorch 2.8.0 and CUDA 12.9. All random seeds were set to 42.
+Our dataset and code will be made available upon publication. All experiments were run on Modal cloud instances with a single NVIDIA H100 (80\,GB) GPU and 64\,GB of system RAM, running Debian Linux with Python 3.11, PyTorch 2.8.0 and CUDA 12.9. All random seeds were set to 42.
 \end{minipage}
 \end{figure*}
 
